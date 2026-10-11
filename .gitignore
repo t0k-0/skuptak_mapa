@@ -1,0 +1,5 @@
+node_modules/
+site-worktree/
+*.tar.gz
+Snímek obrazovky*.png
+.vite/
