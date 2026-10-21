@@ -191,7 +191,7 @@ a { color: var(--focus); text-decoration-thickness: 1px; text-underline-offset: 
 .gate-orbit i:nth-child(2) { top: 14%; right: 17%; background: var(--coral); box-shadow: 0 0 0 1px var(--coral); }
 .gate-orbit i:nth-child(3) { right: 5%; bottom: 28%; background: var(--lime); box-shadow: 0 0 0 1px var(--lime); }
 @keyframes gate-spin { to { transform: rotate(360deg); } }
-:root[data-theme="dark"] .gate-wordmark img, :root[data-theme="dark"] .gate-emblem, :root[data-theme="dark"] .brand-logo { filter: invert(1); }
+:root[data-theme="dark"] .gate-emblem, :root[data-theme="dark"] .brand-logo { filter: invert(1); }
 
 .app-shell {
   display: grid;
@@ -1121,10 +1121,6 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 .node-card { border-radius: 2px; }
 .toast { border-radius: 2px; background: #2f3a4b; color: #fff; }
 
-:root[data-theme="dark"] .gate-header { border-bottom-color: rgba(255,255,255,.14); background: #182231; }
-:root[data-theme="dark"] .gate-wordmark img { filter: invert(1); }
-:root[data-theme="dark"] .gate-wordmark span { border-color: rgba(255,255,255,.28); }
-:root[data-theme="dark"] .gate-footer { background: #111925; }
 :root[data-theme="dark"] .topbar { border-bottom-color: rgba(255,255,255,.12); }
 :root[data-theme="dark"] .db-card { background: #eff3f6; }
 
