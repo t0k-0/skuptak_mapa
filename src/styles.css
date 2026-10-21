@@ -492,6 +492,9 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 .team-node text { fill: var(--ink); font: 650 13px "Open Sans", sans-serif; letter-spacing: .025em; pointer-events: none; }
 .team-node.level-0 rect { fill: var(--ink); stroke: var(--ink); }
 .team-node.level-0 text { fill: var(--white); font: 600 20px "SkautBold", "Open Sans", sans-serif; }
+.team-node .team-node-logo { pointer-events: none; }
+.team-node.skuptaci-center .team-node-logo { filter: invert(1); }
+:root[data-theme="dark"] .team-node.skuptaci-center .team-node-logo { filter: none; }
 .team-node.level-1 rect { fill: var(--paper-deep); stroke: var(--ink); stroke-width: 1.5; }
 .team-node.level-1 text { font: 700 14px "Open Sans", sans-serif; letter-spacing: .045em; }
 .team-node.level-2 rect { fill: color-mix(in srgb, var(--teal) 17%, var(--white)); stroke: var(--teal); stroke-width: 1.5; }

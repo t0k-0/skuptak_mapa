@@ -4,8 +4,11 @@ import readExcelFile from "read-excel-file/browser";
 import * as vennLibrary from "venn.js/build/venn.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import skuptakHorizontalUrl from "./assets/skuptak-horizontal.svg?url";
+import skuptakHorizontalSvg from "./assets/skuptak-horizontal.svg?raw";
 import skuptakEmblemUrl from "./assets/skuptak-emblem.svg?url";
 import "./styles.css";
+
+const skuptakV1DataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(skuptakHorizontalSvg)}`;
 
 const CATEGORY_COLORS = {
   "Oddíl 1": "#ef765f",
@@ -3473,12 +3476,50 @@ function setSvgTitleLines(textSelection, lines, lineHeight, x = 0, y = 0) {
     .text(line => line);
 }
 
+function isSkuptaciCenterNode(team) {
+  return team?.level === 0 && team?.name?.trim() === "Středisko Skuptáci";
+}
+
 function applyAdaptiveTeamTitles(selection, viewportWidth) {
   const compactFactor = Math.max(.84, Math.min(1, viewportWidth / 920));
   selection.each(function(d) {
     const label = d.name?.trim() || "Bez názvu";
+    const isSkuptaciCenter = isSkuptaciCenterNode(d);
     const baseFontSize = d.level === 0 ? 20 : d.level === 1 ? 14 : 13;
     const fontSize = Math.round(baseFontSize * compactFactor * 10) / 10;
+    const group = d3.select(this);
+
+    if (isSkuptaciCenter) {
+      const horizontalPadding = 18;
+      const logoWidth = Math.round(66 * compactFactor * 10) / 10;
+      const logoHeight = Math.round(40 * compactFactor * 10) / 10;
+      const logoGap = 15;
+      const preferredWidth = Math.max(292, Math.min(334, viewportWidth * .66));
+      const availableTextWidth = Math.max(142, preferredWidth - horizontalPadding * 2 - logoWidth - logoGap);
+      const maxChars = Math.max(10, Math.floor(availableTextWidth / (fontSize * .56)));
+      const lines = splitMapTitle(label, maxChars);
+      const lineHeight = Math.round(fontSize * 1.12 * 10) / 10;
+      const measuredTextWidth = Math.max(...lines.map(line => line.length)) * fontSize * .56;
+      d.boxWidth = Math.min(preferredWidth, Math.max(292, horizontalPadding * 2 + logoWidth + logoGap + measuredTextWidth));
+      d.boxHeight = Math.max(68, 28 + lines.length * lineHeight);
+      const textAreaWidth = d.boxWidth - horizontalPadding * 2 - logoWidth - logoGap;
+      const textX = -d.boxWidth / 2 + horizontalPadding + logoWidth + logoGap + textAreaWidth / 2;
+
+      group.select("rect")
+        .attr("x", -d.boxWidth / 2).attr("y", -d.boxHeight / 2)
+        .attr("width", d.boxWidth).attr("height", d.boxHeight).attr("rx", 12);
+      group.select("image.team-node-logo")
+        .style("display", null)
+        .attr("x", -d.boxWidth / 2 + horizontalPadding)
+        .attr("y", -logoHeight / 2)
+        .attr("width", logoWidth)
+        .attr("height", logoHeight);
+      const text = group.select("text").style("font-size", `${fontSize}px`);
+      setSvgTitleLines(text, lines, lineHeight, textX);
+      group.select("title").text(label);
+      return;
+    }
+
     const minWidth = d.level === 0 ? 146 : d.level === 1 ? 108 : 102;
     const preferredMax = d.level === 0 ? 280 : d.level === 1 ? 220 : 198;
     const viewportShare = d.level === 0 ? .42 : d.level === 1 ? .31 : .28;
@@ -3489,9 +3530,9 @@ function applyAdaptiveTeamTitles(selection, viewportWidth) {
     const measuredWidth = Math.max(...lines.map(line => line.length)) * fontSize * .56 + 26;
     d.boxWidth = Math.max(minWidth, Math.min(maxWidth, measuredWidth));
     d.boxHeight = (d.level === 0 ? 46 : 38) + (lines.length - 1) * lineHeight;
-    const group = d3.select(this);
     const cornerRadius = d.level === 0 ? 10 : d.level === 1 ? 7 : Math.min(19, d.boxHeight / 2);
     group.select("rect").attr("x", -d.boxWidth / 2).attr("y", -d.boxHeight / 2).attr("width", d.boxWidth).attr("height", d.boxHeight).attr("rx", cornerRadius);
+    group.select("image.team-node-logo").style("display", "none");
     const text = group.select("text").style("font-size", `${fontSize}px`);
     setSvgTitleLines(text, lines, lineHeight);
     group.select("title").text(label);
@@ -3965,11 +4006,17 @@ function renderGraphV2() {
   const teamNodes = teamLayer.selectAll("g.team-node").data(graphTeams, d => d.id).join(enter => {
     const group = enter.append("g").attr("class", d => `team-node level-${d.level}`);
     group.append("rect");
+    group.append("image")
+      .attr("class", "team-node-logo")
+      .attr("href", skuptakV1DataUrl)
+      .attr("preserveAspectRatio", "xMidYMid meet")
+      .attr("aria-hidden", "true")
+      .style("display", "none");
     group.append("text").attr("text-anchor", "middle").attr("dominant-baseline", "middle");
     group.append("title");
     return group;
   });
-  teamNodes.attr("class", d => `team-node level-${d.level}${d.level === 1 && d.parent_id == null ? " standalone" : ""}`);
+  teamNodes.attr("class", d => `team-node level-${d.level}${d.level === 1 && d.parent_id == null ? " standalone" : ""}${isSkuptaciCenterNode(d) ? " skuptaci-center" : ""}`);
   teamNodes.style("--unit-color", d => d.level > 0 ? unitClusterColor(d) : (teamGraphColor(d) || null)).classed("custom-color", d => d.level > 0 || Boolean(teamGraphColor(d)));
   applyAdaptiveTeamTitles(teamNodes, width);
   updateAdaptiveTitleVisibility();
