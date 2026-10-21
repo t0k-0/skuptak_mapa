@@ -3141,10 +3141,13 @@ function unitOriginSeparationForce() {
 }
 
 function nodeCollisionBox(node) {
-  if (node.nodeType === "team") return {
-    halfWidth: Math.max(48, (node.boxWidth || estimatedTeamWidth(node)) / 2 + (currentMode === "network" ? 22 : 14)),
-    halfHeight: Math.max(28, (node.boxHeight || 32) / 2 + (currentMode === "network" ? 18 : 12))
-  };
+  if (node.nodeType === "team") {
+    const brandedCenterClearance = currentMode === "network" && isSkuptaciCenterNode(node) ? 36 : 0;
+    return {
+      halfWidth: Math.max(48, (node.boxWidth || estimatedTeamWidth(node)) / 2 + (currentMode === "network" ? 22 : 14) + brandedCenterClearance),
+      halfHeight: Math.max(28, (node.boxHeight || 32) / 2 + (currentMode === "network" ? 18 : 12) + brandedCenterClearance)
+    };
+  }
   // The details card is an overlay, not part of the graph's physical body.
   // Letting it alter collision bounds makes a click push the whole cluster.
   if (usesCompactPeopleNodes()) {
@@ -3490,32 +3493,36 @@ function applyAdaptiveTeamTitles(selection, viewportWidth) {
     const group = d3.select(this);
 
     if (isSkuptaciCenter) {
-      const horizontalPadding = 18;
-      const logoWidth = Math.round(66 * compactFactor * 10) / 10;
-      const logoHeight = Math.round(40 * compactFactor * 10) / 10;
-      const logoGap = 15;
-      const preferredWidth = Math.max(292, Math.min(334, viewportWidth * .66));
-      const availableTextWidth = Math.max(142, preferredWidth - horizontalPadding * 2 - logoWidth - logoGap);
+      const horizontalPadding = 22;
+      const topPadding = 17;
+      const bottomPadding = 18;
+      const logoWidth = Math.round(80 * compactFactor * 10) / 10;
+      const logoHeight = Math.round(49 * compactFactor * 10) / 10;
+      const logoGap = 14;
+      const minimumWidth = Math.min(304, Math.max(264, viewportWidth - 28));
+      const preferredWidth = Math.max(minimumWidth, Math.min(336, viewportWidth * .7));
+      const availableTextWidth = Math.max(190, preferredWidth - horizontalPadding * 2);
       const maxChars = Math.max(10, Math.floor(availableTextWidth / (fontSize * .56)));
       const lines = splitMapTitle(label, maxChars);
       const lineHeight = Math.round(fontSize * 1.12 * 10) / 10;
       const measuredTextWidth = Math.max(...lines.map(line => line.length)) * fontSize * .56;
-      d.boxWidth = Math.min(preferredWidth, Math.max(292, horizontalPadding * 2 + logoWidth + logoGap + measuredTextWidth));
-      d.boxHeight = Math.max(68, 28 + lines.length * lineHeight);
-      const textAreaWidth = d.boxWidth - horizontalPadding * 2 - logoWidth - logoGap;
-      const textX = -d.boxWidth / 2 + horizontalPadding + logoWidth + logoGap + textAreaWidth / 2;
+      const textBlockHeight = lines.length * lineHeight;
+      d.boxWidth = Math.min(preferredWidth, Math.max(minimumWidth, horizontalPadding * 2 + measuredTextWidth));
+      d.boxHeight = topPadding + logoHeight + logoGap + textBlockHeight + bottomPadding;
+      const logoY = -d.boxHeight / 2 + topPadding;
+      const textY = logoY + logoHeight + logoGap + textBlockHeight / 2;
 
       group.select("rect")
         .attr("x", -d.boxWidth / 2).attr("y", -d.boxHeight / 2)
-        .attr("width", d.boxWidth).attr("height", d.boxHeight).attr("rx", 12);
+        .attr("width", d.boxWidth).attr("height", d.boxHeight).attr("rx", 14);
       group.select("image.team-node-logo")
         .style("display", null)
-        .attr("x", -d.boxWidth / 2 + horizontalPadding)
-        .attr("y", -logoHeight / 2)
+        .attr("x", -logoWidth / 2)
+        .attr("y", logoY)
         .attr("width", logoWidth)
         .attr("height", logoHeight);
       const text = group.select("text").style("font-size", `${fontSize}px`);
-      setSvgTitleLines(text, lines, lineHeight, textX);
+      setSvgTitleLines(text, lines, lineHeight, 0, textY);
       group.select("title").text(label);
       return;
     }
