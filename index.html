@@ -7,6 +7,14 @@
     <meta name="description" content="Středisko Skuptáci Kutná Hora — interaktivní mapa lidí, jednotek a vztahů." />
     <title>Středisko Skuptáci · Kutná Hora</title>
     <script>
+      // GitHub Pages can be configured to publish the repository branch directly.
+      // In that mode Vite placeholders stay untouched, so forward to the committed build.
+      (() => {
+        const buildBase = "%BASE_URL%";
+        if (buildBase.charCodeAt(0) === 37) location.replace(new URL("./site/", location.href));
+      })();
+    </script>
+    <script>
       (() => {
         try {
           const preference = localStorage.getItem("mapa-strediska-theme") || "system";
@@ -19,7 +27,7 @@
   </head>
   <body>
     <div id="app">
-      <div class="boot-screen"><p>Spouštím Skupták…</p></div>
+      <div class="boot-screen"><p>Budím Skuptáka</p></div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

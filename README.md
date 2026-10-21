@@ -15,7 +15,7 @@ npm run dev
 
 Potom otevřete adresu, kterou Vite vypíše — obvykle `http://localhost:5173/`. Vstupní obrazovka vás vyzve k nahrání vlastní SQLite databáze.
 
-Produkční sestavení vytvoří příkaz `npm run build` ve složce `dist/`.
+Produkční sestavení vytvoří příkaz `npm run build` ve složce `site/`. Složka je součástí repozitáře, aby aplikace fungovala i při starším nastavení GitHub Pages „Deploy from a branch“; při nasazení přes GitHub Actions se publikuje stejný build přímo.
 
 ## Data
 

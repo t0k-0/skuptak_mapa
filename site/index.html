@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f2eb" />
+    <meta name="description" content="Středisko Skuptáci Kutná Hora — interaktivní mapa lidí, jednotek a vztahů." />
+    <title>Středisko Skuptáci · Kutná Hora</title>
+    <script>
+      // GitHub Pages can be configured to publish the repository branch directly.
+      // In that mode Vite placeholders stay untouched, so forward to the committed build.
+      (() => {
+        const buildBase = "./";
+        if (buildBase.charCodeAt(0) === 37) location.replace(new URL("./site/", location.href));
+      })();
+    </script>
+    <script>
+      (() => {
+        try {
+          const preference = localStorage.getItem("mapa-strediska-theme") || "system";
+          const dark = preference === "dark" || (preference === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.dataset.themePreference = preference;
+        } catch (_) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-deSWLmEP.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-C1uN8xy7.css">
+  </head>
+  <body>
+    <div id="app">
+      <div class="boot-screen"><p>Budím Skuptáka</p></div>
+    </div>
+  </body>
+</html>
