@@ -1,4 +1,4 @@
-# Mapa střediska
+# Středisko Skuptáci · Kutná Hora
 
 Interaktivní mapa lidí v týmu. Nabízí samostatné pohledy Struktura, Field a Věk, adaptivní jmenné popisky a SQLite laboratoř pro vlastní `SELECT` dotazy. Field zobrazuje oddíly, družiny, role, města, vlastní kategorie nebo štítky jako průsvitné Vennovy oblasti: lidé jsou abecedně seřazeni v pevných mřížkách podle přesné kombinace svých polí, sdílení lidé leží ve skutečném průniku a hranice každého pole se automaticky zvětší nebo zmenší podle jeho obsahu. Field a Věk používají pevné, deterministické rozložení bez sil mezi lidmi a bez ručního přesouvání, takže kategorie ani věková osa nemohou driftovat; sekundární vztahy přitom zůstávají viditelné jako spojnice. Přepnutí pohledu obnoví jeho vlastní souřadnice, takže Field ani Věk nemohou ovlivnit fyziku Struktury. Vrstvy struktury, vztahů, štítků, oblastí a titulků lze zapínat nezávisle. Panel fyziky nabízí čtyři ovladače známé z Obsidianu: středovou sílu, odpuzování, sílu spojení a délku spojení. Struktura používá pro lidi kompaktní body, větší virtuální plochu a automatické přizpůsobení přiblížení, takže zůstává čitelná i s desítkami lidí.
 
@@ -13,21 +13,15 @@ npm install
 npm run dev
 ```
 
-Potom otevřete adresu, kterou Vite vypíše — obvykle `http://localhost:5173/`. Veškeré úpravy struktury, kategorií, štítků, vztahů a lidí jsou v sekci **Editace**.
+Potom otevřete adresu, kterou Vite vypíše — obvykle `http://localhost:5173/`. Vstupní obrazovka vás vyzve k nahrání vlastní SQLite databáze.
 
 Produkční sestavení vytvoří příkaz `npm run build` ve složce `dist/`.
 
 ## Data
 
-Databáze běží přímo v prohlížeči přes SQLite/WASM a ukládá se do IndexedDB. V levém panelu nebo v sekci **Editace → Databáze** ji lze exportovat jako skutečný soubor `.sqlite` a později znovu načíst. Import nejprve ověří SQLite soubor a očekávané tabulky; aktuální data nahradí až po potvrzení. Formulář **Přidat člověka** slouží pro přidávání a úpravy záznamů; SQL laboratoř je záměrně pouze pro čtení.
+Při každém otevření aplikace se nejprve zobrazí vstupní obrazovka pro nahrání souboru `.sqlite`, `.sqlite3` nebo `.db`. Bez platné databáze nelze pokračovat. Soubor projde kontrolou integrity a očekávaného schématu a potom se otevře přímo v prohlížeči přes SQLite/WASM. Nikam se neodesílá a po obnovení stránky je nutné jej vybrat znovu.
 
-V sekci **Editace → Import lidí z Excelu** lze přetáhnout jeden nebo více souborů `.xlsx`. Import zpracuje pouze sloupce A–E se záhlavím `Osoba`, `Evidenční číslo`, `Jednotka`, `Výchovná kategorie` a `Registrační kategorie`. Kód jednotky založí nebo dohledá oddíl a družinu. Noví lidé jsou předvybraní k vytvoření; nalezené shody se vždy zobrazí jako „současné vs. nové“ a vyžadují rozhodnutí před společným uložením. Přezdívky i obrácené pořadí jména se používají pro dohledání existujících lidí.
-
-Rozpracované zobrazení se uchovává samostatně: aktivní pohled a sekce, Field kritérium, viditelné vrstvy, hledání, přiblížení a pozice uzlů přežijí úpravy dat i nové otevření aplikace.
-
-V editačním dashboardu se změny názvů střediska, oddílů, družin, kategorií, barev a štítků ukládají automaticky po krátké prodlevě nebo ihned po opuštění pole. Stav u každého řádku ukazuje čekání, ukládání, dokončení nebo chybu.
-
-Všechna editační pole jsou volitelná. Neúplný člověk zůstane v mapě viditelný jako „Bez jména“, „Bez kategorie“ nebo „Neuvedeno“ a údaje lze doplnit později.
+Ve veřejné aplikaci nejsou editační, přidávací, načítací ani exportní ovladače. Mapa slouží pro prohlížení, filtrování a analýzu; SQL laboratoř přijímá pouze dotazy `SELECT` a `WITH`. Nastavení zobrazení, například filtry, aktivní pohled a přiblížení, se mohou uchovat lokálně, samotná databáze se však mezi relacemi neukládá.
 
 Hlavní tabulky:
 
@@ -38,8 +32,6 @@ Hlavní tabulky:
 - `tags` a `people_tags` – flexibilní štítky
 - `relationships` – vazby mezi lidmi
 
-Součástí je fiktivní demonstrační dataset, který lze rovnou nahradit vlastními lidmi.
-
 ## GitHub Pages
 
 Repozitář je připravený pro nasazení přes GitHub Actions. Konfigurace Vite používá relativní cesty, takže sestavení funguje na `uzivatel.github.io/nazev-repozitare/`, na uživatelské Pages doméně i na vlastní doméně bez další změny `base`.
@@ -48,6 +40,6 @@ Repozitář je připravený pro nasazení přes GitHub Actions. Konfigurace Vite
 2. V **Settings → Pages → Build and deployment** vyberte jako zdroj **GitHub Actions**.
 3. Workflow `.github/workflows/deploy-pages.yml` při každém pushi do `main` nainstaluje závislosti, vytvoří `dist/` a nasadí jej na Pages.
 
-Databáze zůstává lokálně v IndexedDB konkrétního prohlížeče. Nasazení ani GitHub Actions ji neodesílají na GitHub a data se mezi lidmi nebo zařízeními nesynchronizují. Každý uživatel si načte vlastní `.sqlite` soubor přímo v aplikaci a měl by pravidelně používat export jako zálohu. Databázové a tabulkové soubory jsou v `.gitignore`, aby nešly omylem commitnout.
+Databáze zůstává pouze v paměti konkrétní karty prohlížeče. Nasazení ani GitHub Actions ji neodesílají na GitHub a data se mezi lidmi nebo zařízeními nesynchronizují. Každý uživatel při otevření nahraje vlastní `.sqlite` soubor. Databázové a tabulkové soubory jsou v `.gitignore`, aby nešly omylem commitnout.
 
 > GitHub Pages je ve standardním nastavení veřejný web. Samotný soukromý repozitář není přístupová ochrana pro data vložená přímo do zdrojového kódu.

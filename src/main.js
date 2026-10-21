@@ -3,6 +3,8 @@ import initSqlJs from "sql.js";
 import readExcelFile from "read-excel-file/browser";
 import * as vennLibrary from "venn.js/build/venn.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
+import skuptakHorizontalUrl from "./assets/skuptak-horizontal.svg?url";
+import skuptakEmblemUrl from "./assets/skuptak-emblem.svg?url";
 import "./styles.css";
 
 const CATEGORY_COLORS = {
@@ -99,6 +101,7 @@ themeMedia.addEventListener("change", () => {
 
 let db;
 let SQLRuntime;
+let loadedDatabaseName = "";
 let people = [];
 let teams = [];
 let relationships = [];
@@ -331,33 +334,148 @@ function updateFieldTagPickerCount() {
   if (count) count.textContent = selectedFieldTagIds.length === tagsData.length ? `(${tagsData.length})` : `(${selectedFieldTagIds.length}/${tagsData.length})`;
 }
 
+function databaseGateStatus(message, state = "ready") {
+  const status = document.querySelector("#database-gate-status");
+  const dropzone = document.querySelector("#database-dropzone");
+  if (status) {
+    status.dataset.state = state;
+    status.innerHTML = state === "loading" ? `<span class="gate-spinner" aria-hidden="true"></span>${escapeHtml(message)}` : escapeHtml(message);
+  }
+  if (dropzone) {
+    dropzone.dataset.state = state;
+    dropzone.setAttribute("aria-busy", String(state === "loading"));
+  }
+}
+
+function renderDatabaseGate() {
+  document.documentElement.classList.add("landing-page");
+  app.innerHTML = `
+    <main class="database-gate">
+      <div class="gate-orbit gate-orbit-one" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="gate-orbit gate-orbit-two" aria-hidden="true"><i></i><i></i></div>
+      <header class="gate-header">
+        <a class="gate-wordmark" href="." aria-label="Středisko Skuptáci Kutná Hora · úvod">
+          <img src="${skuptakHorizontalUrl}" alt="">
+          <span><b>Středisko Skuptáci</b><small>Kutná Hora 215.01</small></span>
+        </a>
+      </header>
+      <section class="gate-layout" aria-labelledby="gate-title">
+        <div class="gate-intro">
+          <span class="gate-kicker"><i></i> Vaše data. Vaše souvislosti.</span>
+          <h1 id="gate-title">Kdo tvoří<br><em>středisko?</em></h1>
+          <p>Skupták promění databázi střediska v přehlednou mapu lidí, jednotek a vztahů. Soubor se zpracuje pouze ve vašem prohlížeči.</p>
+          <div class="gate-promises" aria-label="Vlastnosti zpracování">
+            <span>${icons.sql} Lokálně</span>
+            <span>${icons.map} Bez odesílání</span>
+            <span>${icons.filter} Jen pro tuto relaci</span>
+          </div>
+        </div>
+        <div class="gate-upload-card">
+          <div class="gate-emblem-wrap" aria-hidden="true">
+            <div class="gate-emblem-halo"></div>
+            <img class="gate-emblem" src="${skuptakEmblemUrl}" alt="">
+          </div>
+          <div class="gate-card-copy">
+            <span class="eyebrow">První krok</span>
+            <h2>Otevřete databázi</h2>
+            <p>Pokračovat lze až po načtení platné databáze Skuptáku.</p>
+          </div>
+          <label class="database-dropzone" id="database-dropzone" for="startup-database-file" tabindex="0" role="button" aria-describedby="database-gate-status">
+            <input id="startup-database-file" type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3" hidden>
+            <span class="dropzone-icon">${icons.sql}<i>+</i></span>
+            <strong>Přetáhněte sem soubor SQL</strong>
+            <span>nebo klikněte a vyberte <b>.sqlite</b> / <b>.db</b></span>
+          </label>
+          <div class="gate-status" id="database-gate-status" data-state="loading" role="status" aria-live="polite"><span class="gate-spinner" aria-hidden="true"></span>Připravuji čtečku databáze…</div>
+        </div>
+      </section>
+      <footer class="gate-footer"><span>Skupták / ${new Date().getFullYear()}</span><span>Databáze neopustí vaše zařízení</span></footer>
+    </main>`;
+
+  const input = document.querySelector("#startup-database-file");
+  const dropzone = document.querySelector("#database-dropzone");
+  input.addEventListener("change", () => handleStartupDatabaseFile(input.files?.[0]));
+  dropzone.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      input.click();
+    }
+  });
+  ["dragenter", "dragover"].forEach(type => dropzone.addEventListener(type, event => {
+    event.preventDefault();
+    if (SQLRuntime) dropzone.classList.add("is-dragging");
+  }));
+  ["dragleave", "drop"].forEach(type => dropzone.addEventListener(type, event => {
+    event.preventDefault();
+    dropzone.classList.remove("is-dragging");
+  }));
+  dropzone.addEventListener("drop", event => handleStartupDatabaseFile(event.dataTransfer?.files?.[0]));
+}
+
+async function handleStartupDatabaseFile(file) {
+  if (!file) return;
+  if (!SQLRuntime) {
+    databaseGateStatus("Čtečka se ještě načítá. Zkuste to za okamžik.", "error");
+    return;
+  }
+  let candidate;
+  try {
+    databaseGateStatus(`Kontroluji ${file.name}…`, "loading");
+    candidate = new SQLRuntime.Database(new Uint8Array(await file.arrayBuffer()));
+    validateImportedDatabase(candidate);
+    db = candidate;
+    ensureOrgSchema();
+    const result = db.exec("SELECT COUNT(*) FROM people");
+    const count = result[0]?.values?.[0]?.[0] ?? 0;
+    loadedDatabaseName = file.name;
+    databaseGateStatus(`Načteno ${count} lidí. Sestavuji mapu…`, "success");
+    await new Promise(resolve => setTimeout(resolve, 240));
+    await startApplication();
+  } catch (error) {
+    try { candidate?.close(); } catch (_) {}
+    if (db === candidate) db = undefined;
+    if (!document.querySelector("#database-gate-status")) renderDatabaseGate();
+    databaseGateStatus(`Soubor nelze otevřít: ${error.message}`, "error");
+    const input = document.querySelector("#startup-database-file");
+    if (input) input.value = "";
+  }
+}
+
+async function startApplication() {
+  document.documentElement.classList.remove("landing-page");
+  activeSection = "map";
+  renderShell();
+  syncWorkspaceControls();
+  await loadPeople();
+  fillCategoryOptions();
+  bindEvents();
+  initGraphV2();
+  showSection("map");
+}
+
 function renderShell() {
   app.innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand"><div class="brand-mark">M</div><div class="brand-copy"><strong>Mapa lidí</strong><span>středisko</span></div></div>
+        <div class="brand"><img class="brand-logo" src="${skuptakEmblemUrl}" alt=""><div class="brand-copy"><strong>Středisko Skuptáci</strong><span>Kutná Hora 215.01</span></div></div>
         <div class="nav-label">Pohled</div>
         <nav class="nav-list" aria-label="Hlavní navigace">
           <button class="nav-button active" data-section="map">${icons.map}<span>Vizuální mapa</span></button>
-          <button class="nav-button" data-section="edit">${icons.edit}<span>Editace</span></button>
           <button class="nav-button" data-section="sql">${icons.sql}<span>SQL laboratoř</span></button>
         </nav>
         <div class="sidebar-spacer"></div>
         <div class="db-card">
           <div class="db-card-top"><span class="db-status"><i class="db-dot"></i> SQLite aktivní</span><span id="db-size" class="eyebrow">— KB</span></div>
-          <p>Data jsou uložena lokálně ve vašem prohlížeči.</p>
-          <div class="db-actions"><button class="text-button" id="import-db" type="button">Načíst .sqlite</button><button class="text-button" id="export-db" type="button">Exportovat .sqlite</button></div>
-          <input id="import-db-file" type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3" hidden>
+          <p><b class="db-file-name">${escapeHtml(loadedDatabaseName)}</b><br>Otevřeno jen pro tuto relaci.</p>
         </div>
         <div class="build-note">MAPA / 01 · 2026</div>
       </aside>
       <main class="workspace">
         <header class="topbar">
-          <div class="title-block"><span class="eyebrow" id="section-kicker">Interaktivní přehled</span><h1 id="section-title">Kdo tvoří středisko</h1></div>
+          <div class="title-block"><span class="eyebrow" id="section-kicker">Interaktivní přehled</span><h1 id="section-title">Kdo tvoří středisko?</h1></div>
           <div class="top-actions">
             <div class="search-wrap" role="search">${icons.search}<input id="search" class="search-input" type="search" placeholder="Hledat jméno, roli, štítek…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="map-search-suggestions" aria-expanded="false"><span class="search-key">/</span><div class="map-search-suggestions" id="map-search-suggestions" role="listbox" hidden></div></div>
             <button class="theme-toggle" id="theme-toggle" type="button"></button>
-            <button class="primary-button" id="add-person">+ Přidat člověka</button>
           </div>
         </header>
         <section class="view map-view" id="map-view">
@@ -370,7 +488,6 @@ function renderShell() {
             <button class="options-toggle" id="fit-map" type="button">Přizpůsobit</button>
             <button class="toolbar-icon-button filter-toggle" id="filter-toggle" type="button" aria-label="Pokročilé filtry mapy" title="Filtry a barvy" aria-expanded="false">${icons.filter}<span id="filter-count" class="filter-count" hidden>0</span></button>
             <button class="toolbar-icon-button" id="physics-toggle" type="button" aria-label="Nastavení fyziky mapy" title="Fyzika mapy" aria-expanded="false">${icons.physics}</button>
-            <button class="toolbar-icon-button" id="export-toggle" type="button" aria-label="Exportovat aktuální pohled" title="Export PDF nebo SVG" aria-expanded="false">${icons.export}</button>
             <button class="options-toggle" id="options-toggle" type="button" aria-expanded="false">Zobrazení</button>
           </div>
           <div class="filter-panel" id="filter-panel"></div>
@@ -400,19 +517,13 @@ function renderShell() {
             <label><input type="checkbox" data-option="categories" checked><span>Pole / kategorie</span></label>
             <label><input type="checkbox" data-option="titles" checked><span>Názvy střediska, oddílů a družin</span></label>
           </div>
-          <div class="export-panel" id="export-panel">
-            <div class="export-title"><span class="eyebrow">Aktuální pohled</span><strong>Exportovat mapu</strong></div>
-            <button type="button" data-map-export="pdf"><b>PDF</b><span>A4 na šířku · připravené k tisku</span></button>
-            <button type="button" data-map-export="svg"><b>SVG</b><span>Samostatná škálovatelná grafika</span></button>
-            <p>PDF otevře systémový tisk. Jako tiskárnu zvolte „Uložit jako PDF“.</p>
           </div>
-          </div>
-          <div class="print-map-header" aria-hidden="true"><div><span>Mapa střediska</span><strong id="print-map-title"></strong></div><div><b id="print-view-name"></b><small id="print-view-meta"></small></div></div>
+          <div class="print-map-header" aria-hidden="true"><div><span>Kdo tvoří středisko?</span><strong id="print-map-title"></strong></div><div><b id="print-view-name"></b><small id="print-view-meta"></small></div></div>
           <div class="map-meta"><div class="stat"><strong id="people-count">0</strong><span>lidí</span></div><div class="stat"><strong id="team-count">0</strong><span>jednotek</span></div></div>
           <svg id="map" role="img" aria-label="Interaktivní mapa členů týmu"></svg>
           <div class="field-section-popover" id="field-section-popover" hidden></div>
           <div class="unit-action-popover" id="unit-action-popover" role="dialog" aria-label="Možnosti jednotky" hidden></div>
-          <div class="map-hint">Přetáhnout · kliknout pro detail · úpravy jsou v editačním dashboardu</div>
+          <div class="map-hint">Přetáhnout · kliknout pro detail · filtry mění zobrazení mapy</div>
         </section>
         <section class="view edit-view" id="edit-view">
           <div class="edit-dashboard" id="edit-dashboard"></div>
@@ -2493,7 +2604,7 @@ function nodeHtml(d) {
   const tags = d.tagsArray.slice(0,3).map(t => `<span class="node-tag">#${escapeHtml(t)}</span>`).join("");
   return `<div class="node-card" xmlns="http://www.w3.org/1999/xhtml">
     <div class="node-main"><div class="node-initials">${initials(d.name)}</div><div class="node-text"><div class="node-name">${escapeHtml(d.name)}</div><div class="node-role">${escapeHtml(d.role)}</div></div><div class="node-chevron">⌄</div></div>
-    <div class="node-more"><div class="node-rule"></div><div class="node-facts"><div><b>${d.age} let</b>věk</div><div><b>${escapeHtml(d.city || "—")}</b>město</div><div><b>${escapeHtml(d.category)}</b>kategorie</div><div><b>${escapeHtml(d.team || "—")}</b>tým</div></div><div class="node-tags">${tags || '<span class="node-tag">bez štítků</span>'}</div><button class="node-edit" type="button">upravit</button></div>
+    <div class="node-more"><div class="node-rule"></div><div class="node-facts"><div><b>${d.age} let</b>věk</div><div><b>${escapeHtml(d.city || "—")}</b>město</div><div><b>${escapeHtml(d.category)}</b>kategorie</div><div><b>${escapeHtml(d.team || "—")}</b>tým</div></div><div class="node-tags">${tags || '<span class="node-tag">bez štítků</span>'}</div></div>
   </div>`;
 }
 
@@ -3321,7 +3432,7 @@ function nodeHtmlV2(d) {
     : "";
   const tags = d.tagsArray.map(tag => `<span class="node-tag">#${escapeHtml(tag)}</span>`).join("");
   return `<div class="node-card" xmlns="http://www.w3.org/1999/xhtml">
-    <div class="node-main"><button class="node-edit" type="button">upravit</button><div class="node-name">${escapeHtml(personName(d))}</div><button class="node-close" type="button" aria-label="Zavřít informace o osobě">&times;</button></div>
+    <div class="node-main"><div class="node-name">${escapeHtml(personName(d))}</div><button class="node-close" type="button" aria-label="Zavřít informace o osobě">&times;</button></div>
     <div class="node-more"><div class="node-rule"></div><div class="node-facts">${factHtml}${unitHtml}</div><div class="node-tags">${tags || '<span class="node-tag">bez štítků</span>'}</div></div>
   </div>`;
 }
@@ -4302,23 +4413,21 @@ function applySearch() {
 }
 
 function showSection(section) {
+  if (section !== "map" && section !== "sql") section = "map";
   activeSection = section;
   document.querySelectorAll(".nav-button").forEach(b => b.classList.toggle("active", b.dataset.section === section));
   const isMap = section === "map";
-  const isEdit = section === "edit";
   document.querySelector("#map-view").style.display = isMap ? "block" : "none";
-  document.querySelector("#edit-view").style.display = isEdit ? "block" : "none";
+  document.querySelector("#edit-view").style.display = "none";
   document.querySelector("#sql-view").style.display = section === "sql" ? "block" : "none";
   document.querySelector("#search").closest(".search-wrap").style.display = isMap ? "block" : "none";
-  document.querySelector("#add-person").style.display = section === "sql" ? "none" : "inline-flex";
-  document.querySelector("#section-kicker").textContent = isMap ? "Interaktivní přehled" : isEdit ? "Správa databáze" : "SQLite databáze";
-  document.querySelector("#section-title").textContent = isMap ? "Kdo tvoří středisko" : isEdit ? "Editační dashboard" : "Ptejte se dat";
+  document.querySelector("#section-kicker").textContent = isMap ? "Interaktivní přehled" : "SQLite databáze";
+  document.querySelector("#section-title").textContent = isMap ? "Kdo tvoří středisko?" : "Ptejte se dat";
   if (!isMap) {
     simulation?.stop();
     hideMapSearchSuggestions();
     hideUnitActionPopover();
   }
-  if (isEdit) renderEditDashboard();
   if (isMap) setTimeout(() => updateModeV2(currentMode, false), 20);
   persistWorkspaceState(true);
 }
@@ -5492,7 +5601,7 @@ function currentMapExportContext() {
   const teamCount = graphTeams.length;
   const date = new Date();
   return {
-    title: rootTeam?.name || "Mapa střediska",
+    title: rootTeam?.name || "Kdo tvoří středisko?",
     view: currentViewExportLabel(),
     peopleCount,
     teamCount,
@@ -5693,8 +5802,8 @@ function bindEvents() {
     document.querySelector("#options-toggle").setAttribute("aria-expanded", "false");
     document.querySelector("#physics-panel").classList.remove("open");
     document.querySelector("#physics-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#export-panel").classList.remove("open");
-    document.querySelector("#export-toggle").setAttribute("aria-expanded", "false");
+    document.querySelector("#export-panel")?.classList.remove("open");
+    document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
     const panel = document.querySelector("#filter-panel");
     const open = panel.classList.toggle("open");
     event.currentTarget.setAttribute("aria-expanded", String(open));
@@ -5705,8 +5814,8 @@ function bindEvents() {
     document.querySelector("#filter-toggle").setAttribute("aria-expanded", "false");
     document.querySelector("#options-panel").classList.remove("open");
     document.querySelector("#options-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#export-panel").classList.remove("open");
-    document.querySelector("#export-toggle").setAttribute("aria-expanded", "false");
+    document.querySelector("#export-panel")?.classList.remove("open");
+    document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
     const panel = document.querySelector("#physics-panel");
     const open = panel.classList.toggle("open");
     event.currentTarget.setAttribute("aria-expanded", String(open));
@@ -5759,15 +5868,15 @@ function bindEvents() {
     document.querySelector("#filter-toggle").setAttribute("aria-expanded", "false");
     document.querySelector("#physics-panel").classList.remove("open");
     document.querySelector("#physics-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#export-panel").classList.remove("open");
-    document.querySelector("#export-toggle").setAttribute("aria-expanded", "false");
+    document.querySelector("#export-panel")?.classList.remove("open");
+    document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
     const panel = document.querySelector("#options-panel");
     const open = panel.classList.toggle("open");
     event.currentTarget.setAttribute("aria-expanded", String(open));
   });
   document.querySelector("#options-panel").addEventListener("click", event => event.stopPropagation());
   document.querySelector("#physics-panel").addEventListener("click", event => event.stopPropagation());
-  document.querySelector("#export-toggle").addEventListener("click", event => {
+  document.querySelector("#export-toggle")?.addEventListener("click", event => {
     event.stopPropagation();
     const panel = document.querySelector("#export-panel");
     const open = !panel.classList.contains("open");
@@ -5775,7 +5884,7 @@ function bindEvents() {
     panel.classList.toggle("open", open);
     event.currentTarget.setAttribute("aria-expanded", String(open));
   });
-  document.querySelector("#export-panel").addEventListener("click", event => {
+  document.querySelector("#export-panel")?.addEventListener("click", event => {
     event.stopPropagation();
     const action = event.target.closest("[data-map-export]")?.dataset.mapExport;
     if (action === "pdf") exportCurrentMapAsPdf();
@@ -5966,7 +6075,7 @@ function bindEvents() {
     hideFieldSectionInfo();
     closeExpandedPersonInfo();
   });
-  document.querySelector("#add-person").addEventListener("click", () => openPersonModal());
+  document.querySelector("#add-person")?.addEventListener("click", () => openPersonModal());
   document.querySelector("#close-modal").addEventListener("click", closePersonModal);
   document.querySelector("#cancel-modal").addEventListener("click", closePersonModal);
   document.querySelector("#person-modal").addEventListener("click", e => { if (e.target.id === "person-modal") closePersonModal(); });
@@ -6042,9 +6151,9 @@ function bindEvents() {
   document.querySelector("#run-query").addEventListener("click", runSelect);
   document.querySelector("#sql-query").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runSelect(); });
   document.querySelectorAll(".preset").forEach(b => b.addEventListener("click", () => { document.querySelector("#sql-query").value = presets[b.dataset.preset]; runSelect(); }));
-  document.querySelector("#export-db").addEventListener("click", exportDatabase);
-  document.querySelector("#import-db").addEventListener("click", () => document.querySelector("#import-db-file").click());
-  document.querySelector("#import-db-file").addEventListener("change", importDatabaseFile);
+  document.querySelector("#export-db")?.addEventListener("click", exportDatabase);
+  document.querySelector("#import-db")?.addEventListener("click", () => document.querySelector("#import-db-file")?.click());
+  document.querySelector("#import-db-file")?.addEventListener("change", importDatabaseFile);
   document.querySelector("#confirm-cancel").addEventListener("click", () => closeConfirm(false));
   document.querySelector("#confirm-accept").addEventListener("click", () => closeConfirm(true));
   document.querySelector("#confirm-modal").addEventListener("click", event => { if (event.target.id === "confirm-modal") closeConfirm(false); });
@@ -6081,26 +6190,15 @@ function bindEvents() {
 }
 
 async function boot() {
+  renderDatabaseGate();
   try {
     loadWorkspaceState();
+    activeSection = "map";
     const SQL = await initSqlJs({locateFile: () => wasmUrl});
     SQLRuntime = SQL;
-    let saved = null;
-    try { saved = await loadSavedDatabase(); } catch (_) {}
-    db = saved ? new SQL.Database(new Uint8Array(saved)) : new SQL.Database();
-    if (!saved) createSchema();
-    ensureOrgSchema();
-    renderShell();
-    syncWorkspaceControls();
-    await loadPeople();
-    fillCategoryOptions();
-    renderEditDashboard();
-    await persistDatabase();
-    bindEvents();
-    initGraphV2();
-    showSection(activeSection);
+    databaseGateStatus("Čtečka je připravena. Vyberte svou databázi.", "ready");
   } catch (error) {
-    app.innerHTML = `<div class="empty-result" style="height:100vh"><div><b>Mapa se neotevřela</b><span>${escapeHtml(error.message)}</span></div></div>`;
+    databaseGateStatus(`Aplikaci se nepodařilo připravit: ${error.message}`, "error");
     console.error(error);
   }
 }
