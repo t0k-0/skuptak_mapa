@@ -3,3 +3,17 @@ site-worktree/
 *.tar.gz
 Snímek obrazovky*.png
 .vite/
+dist/
+
+# Team data stays local and is imported through the browser.
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+*.xlsx
+*.xls
+
+# Local environment files must never be published.
+.env
+.env.*
+!.env.example
