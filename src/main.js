@@ -3334,71 +3334,65 @@ function enforceNoNodeOverlap(nodes, maxPasses = 24) {
   });
 }
 
-function ageGroupLabel(age) {
-  if (!Number.isFinite(age)) return "Neuvedeno";
-  if (age === 1) return "1 rok";
-  if (age >= 2 && age <= 4) return `${age} roky`;
-  return `${age} let`;
-}
-
-function ageBoardLayout(width) {
+function ageGraphLayout(width, height) {
   const targets = new Map();
-  const grouped = d3.groups(graphPeople, person => Number.isFinite(person.age) ? Math.floor(person.age) : null)
-    .map(([age, members]) => ({
-      age,
-      members: [...members].sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id)
-    }))
-    .sort((a, b) => {
-      if (a.age == null) return 1;
-      if (b.age == null) return -1;
-      return a.age - b.age;
+  const known = graphPeople
+    .filter(person => Number.isFinite(person.age))
+    .sort((a, b) => a.age - b.age || personName(a).localeCompare(personName(b), "cs") || a.id - b.id);
+  const unknown = graphPeople
+    .filter(person => !Number.isFinite(person.age))
+    .sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id);
+  const ages = known.map(person => Math.floor(person.age));
+  let minAge = ages.length ? Math.floor(d3.min(ages) / 5) * 5 : 0;
+  let maxAge = ages.length ? Math.ceil(d3.max(ages) / 5) * 5 : 10;
+  if (maxAge - minAge < 10) {
+    minAge = Math.max(0, minAge - 5);
+    maxAge += 5;
+  }
+  const grouped = d3.group(known, person => Math.floor(person.age));
+  const largestAgeGroup = d3.max([...grouped.values()], members => members.length) || 1;
+  const dotGap = 23;
+  const plotHeight = Math.max(310, height - 205, largestAgeGroup * dotGap + 76);
+  const top = 76;
+  const axisY = top + plotHeight;
+  const unknownColumns = unknown.length ? Math.max(1, Math.min(5, Math.ceil(Math.sqrt(unknown.length)))) : 0;
+  const unknownLaneWidth = unknown.length ? Math.max(146, unknownColumns * dotGap + 58) : 0;
+  const ageSpan = Math.max(10, maxAge - minAge);
+  const plotWidth = Math.max(680, width - 150 - unknownLaneWidth, ageSpan * 20);
+  const left = 76;
+  const right = left + plotWidth;
+  const scale = d3.scaleLinear().domain([minAge, maxAge]).range([left, right]);
+  const middleY = top + plotHeight / 2;
+  grouped.forEach((members, age) => {
+    const ordered = [...members].sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id);
+    ordered.forEach((person, index) => {
+      const step = index === 0 ? 0 : Math.ceil(index / 2) * (index % 2 ? -1 : 1);
+      targets.set(person.id, [scale(+age), middleY + step * dotGap]);
     });
-  const cell = 29;
-  const gap = 22;
-  const cards = grouped.map(group => {
-    const columns = Math.max(2, Math.min(8, Math.ceil(Math.sqrt(group.members.length * 1.35))));
-    const rows = Math.max(1, Math.ceil(group.members.length / columns));
-    return {
-      ...group,
-      columns,
-      rows,
-      width: Math.max(132, columns * cell + 34),
-      height: 58 + rows * cell + 18
-    };
   });
-  const totalArea = d3.sum(cards, card => (card.width + gap) * (card.height + gap));
-  const boardWidth = Math.max(Math.max(760, width - 100), Math.min(2500, Math.sqrt(Math.max(1, totalArea) * 1.72)));
-  let cursorX = 54;
-  let cursorY = 76;
-  let rowHeight = 0;
-  cards.forEach(card => {
-    if (cursorX > 54 && cursorX + card.width > boardWidth + 54) {
-      cursorX = 54;
-      cursorY += rowHeight + gap;
-      rowHeight = 0;
-    }
-    card.x = cursorX;
-    card.y = cursorY;
-    card.members.forEach((person, index) => {
-      const row = Math.floor(index / card.columns);
-      const column = index % card.columns;
-      const populatedColumns = row === card.rows - 1 && card.members.length % card.columns
-        ? card.members.length % card.columns
-        : card.columns;
-      const startX = card.x + card.width / 2 - (populatedColumns - 1) * cell / 2;
-      targets.set(person.id, [startX + column * cell, card.y + 65 + row * cell]);
-    });
-    cursorX += card.width + gap;
-    rowHeight = Math.max(rowHeight, card.height);
+  const unknownStartX = right + (unknown.length ? 78 : 0);
+  unknown.forEach((person, index) => {
+    const row = Math.floor(index / unknownColumns);
+    const column = index % unknownColumns;
+    targets.set(person.id, [unknownStartX + column * dotGap, top + 42 + row * dotGap]);
   });
+  const unknownRows = unknown.length ? Math.ceil(unknown.length / unknownColumns) : 0;
+  const maxX = unknown.length ? unknownStartX + (unknownColumns - 1) * dotGap + 50 : right + 30;
+  const maxY = Math.max(axisY + 58, unknown.length ? top + 70 + unknownRows * dotGap : 0);
   return {
     targets,
-    cards,
+    scale,
+    axisY,
+    top,
+    right,
+    unknown,
+    unknownStartX,
+    tickCount: Math.max(4, Math.min(16, Math.floor(plotWidth / 105))),
     bounds: {
-      minX: 36,
-      minY: 28,
-      maxX: Math.max(160, d3.max(cards, card => card.x + card.width) || 160),
-      maxY: Math.max(160, d3.max(cards, card => card.y + card.height) || 160)
+      minX: 30,
+      minY: 24,
+      maxX,
+      maxY
     }
   };
 }
@@ -3955,13 +3949,12 @@ function fitMapToStructure(animate = true) {
       }
     }
     if (currentMode === "age") {
-      const ageCards = [];
-      axisLayer?.selectAll("g.age-group").each(card => ageCards.push(card));
-      if (ageCards.length) {
-        minX = Math.min(minX, d3.min(ageCards, card => card.x));
-        maxX = Math.max(maxX, d3.max(ageCards, card => card.x + card.width));
-        minY = Math.min(minY, d3.min(ageCards, card => card.y));
-        maxY = Math.max(maxY, d3.max(ageCards, card => card.y + card.height));
+      const ageBounds = axisLayer?.select("rect.age-plot-bounds").datum();
+      if (ageBounds) {
+        minX = Math.min(minX, ageBounds.minX);
+        maxX = Math.max(maxX, ageBounds.maxX);
+        minY = Math.min(minY, ageBounds.minY);
+        maxY = Math.max(maxY, ageBounds.maxY);
       }
     }
   } else {
@@ -4276,7 +4269,7 @@ function updateModeV2(mode, animate = true) {
   if (mapHint) mapHint.textContent = mode === "field" && fieldDimension === "oddil"
     ? "Najet na oddíl = ukázat dosah · kliknout = připnout · Esc = zavřít"
     : mode === "age"
-      ? "Věk je vypočítaný z data narození · skupiny jsou seřazené · kliknout pro detail"
+      ? "Věk je vypočítaný z data narození · každý bod je člověk · kliknout pro detail"
       : "Přetáhnout · kliknout pro detail";
   syncFieldTagPickerVisibility();
   const width = mapView.clientWidth;
@@ -4433,38 +4426,52 @@ function updateModeV2(mode, animate = true) {
     graphTeams.forEach(team => { team.fx = null; team.fy = null; });
     teamLayer.transition().duration(animate ? 250 : 0).style("opacity", 0);
     structureLinkLayer.transition().duration(animate ? 250 : 0).style("opacity", 0);
-    relationshipLinkLayer.transition().duration(animate ? 250 : 0).style("opacity", displayOptions.secondary ? .11 : 0);
-    const ageLayout = ageBoardLayout(width);
-    axisLayer.append("text")
-      .attr("class", "age-board-heading")
+    relationshipLinkLayer.transition().duration(animate ? 250 : 0).style("opacity", displayOptions.secondary ? .16 : 0);
+    const ageLayout = ageGraphLayout(width, height);
+    axisLayer.append("rect")
+      .datum(ageLayout.bounds)
+      .attr("class", "age-plot-bounds")
       .attr("x", ageLayout.bounds.minX)
+      .attr("y", ageLayout.bounds.minY)
+      .attr("width", ageLayout.bounds.maxX - ageLayout.bounds.minX)
+      .attr("height", ageLayout.bounds.maxY - ageLayout.bounds.minY);
+    axisLayer.append("text")
+      .attr("class", "age-plot-heading")
+      .attr("x", ageLayout.bounds.minX + 46)
       .attr("y", 42)
-      .text("Věk · od nejmladších po nejstarší");
-    const ageGroups = axisLayer.selectAll("g.age-group")
-      .data(ageLayout.cards, card => card.age ?? "unknown")
-      .join("g")
-      .attr("class", card => `age-group${card.age == null ? " age-group-unknown" : ""}`)
-      .attr("transform", card => `translate(${card.x},${card.y})`);
-    ageGroups.append("rect")
-      .attr("width", card => card.width)
-      .attr("height", card => card.height)
-      .attr("rx", 18);
-    ageGroups.append("line")
-      .attr("x1", 15)
-      .attr("x2", card => card.width - 15)
-      .attr("y1", 45)
-      .attr("y2", 45);
-    ageGroups.append("text")
-      .attr("class", "age-group-title")
-      .attr("x", 16)
-      .attr("y", 29)
-      .text(card => ageGroupLabel(card.age));
-    ageGroups.append("text")
-      .attr("class", "age-group-count")
-      .attr("x", card => card.width - 16)
-      .attr("y", 28)
+      .text("Věk lidí");
+    axisLayer.append("text")
+      .attr("class", "age-plot-note")
+      .attr("x", ageLayout.bounds.minX + 46)
+      .attr("y", 59)
+      .text("Každý bod představuje jednoho člověka");
+    axisLayer.append("g")
+      .attr("class", "age-axis age-axis-graph")
+      .attr("transform", `translate(0,${ageLayout.axisY})`)
+      .call(d3.axisBottom(ageLayout.scale)
+        .ticks(ageLayout.tickCount)
+        .tickFormat(value => `${value}`)
+        .tickSize(-(ageLayout.axisY - ageLayout.top))
+        .tickPadding(12));
+    axisLayer.append("text")
+      .attr("class", "age-axis-title")
+      .attr("x", ageLayout.right)
+      .attr("y", ageLayout.axisY + 48)
       .attr("text-anchor", "end")
-      .text(card => `${card.members.length} ${card.members.length === 1 ? "člověk" : "lidí"}`);
+      .text("věk v letech");
+    if (ageLayout.unknown.length) {
+      axisLayer.append("line")
+        .attr("class", "age-unknown-divider")
+        .attr("x1", ageLayout.right + 38)
+        .attr("x2", ageLayout.right + 38)
+        .attr("y1", ageLayout.top - 18)
+        .attr("y2", ageLayout.axisY);
+      axisLayer.append("text")
+        .attr("class", "age-unknown-title")
+        .attr("x", ageLayout.unknownStartX)
+        .attr("y", ageLayout.top - 18)
+        .text(`Věk neuveden · ${ageLayout.unknown.length}`);
+    }
     nodeLayer.selectAll("circle.person-dot").attr("r", 6.5);
     applyStaticGraphLayout(ageLayout.targets, animate && !viewChanged);
     clearTimeout(graphFitTimer);
