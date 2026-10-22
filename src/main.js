@@ -125,6 +125,8 @@ let editingId = null;
 let searchTerm = "";
 let mapSearchSuggestions = [];
 let activeMapSearchSuggestion = -1;
+let mapSearchZoomTimer;
+let mapSearchRestoreByMode = {};
 let peopleEditorSearch = "";
 let toastTimer;
 let confirmResolver = null;
@@ -3857,6 +3859,59 @@ function fitMapToStructure(animate = true) {
   target.call(zoomBehavior.transform, transform);
 }
 
+function zoomMapToSearchResults(matches, animate = true) {
+  if (!svg || !zoomBehavior || !matches.length) return;
+  const view = document.querySelector("#map-view");
+  const width = view?.clientWidth || 1000;
+  const height = view?.clientHeight || 650;
+  const positioned = matches.filter(node => Number.isFinite(node.x) && Number.isFinite(node.y));
+  if (!positioned.length) return;
+  const worldPadding = positioned.length === 1 ? 48 : 64;
+  const minX = d3.min(positioned, node => node.x - nodeCollisionBox(node).halfWidth) - worldPadding;
+  const maxX = d3.max(positioned, node => node.x + nodeCollisionBox(node).halfWidth) + worldPadding;
+  const minY = d3.min(positioned, node => node.y - nodeCollisionBox(node).halfHeight) - worldPadding;
+  const maxY = d3.max(positioned, node => node.y + nodeCollisionBox(node).halfHeight) + worldPadding;
+  const contentWidth = Math.max(1, maxX - minX);
+  const contentHeight = Math.max(1, maxY - minY);
+  const maximumScale = positioned.length === 1 ? 1.55 : 1.35;
+  const scale = Math.max(.06, Math.min(maximumScale, (width - 110) / contentWidth, (height - 110) / contentHeight));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const transform = d3.zoomIdentity.translate(width / 2, height / 2).scale(scale).translate(-centerX, -centerY);
+  const target = animate ? svg.interrupt().transition().duration(460).ease(d3.easeCubicOut) : svg.interrupt();
+  target.call(zoomBehavior.transform, transform);
+}
+
+function restoreMapZoomAfterSearch(animate = true) {
+  clearTimeout(mapSearchZoomTimer);
+  const restore = mapSearchRestoreByMode[currentMode];
+  Object.entries(mapSearchRestoreByMode).forEach(([mode, transform]) => {
+    savedZoomByMode[mode] = {...transform};
+  });
+  mapSearchRestoreByMode = {};
+  if (!restore || !svg || !zoomBehavior) return;
+  savedZoom = {...restore};
+  const transform = d3.zoomIdentity.translate(restore.x, restore.y).scale(restore.k);
+  const target = animate ? svg.interrupt().transition().duration(420).ease(d3.easeCubicOut) : svg.interrupt();
+  target.call(zoomBehavior.transform, transform);
+}
+
+function scheduleMapSearchZoom(query, delay = 180) {
+  clearTimeout(mapSearchZoomTimer);
+  const needle = normalizeMapSearchValue(query);
+  if (!needle) {
+    restoreMapZoomAfterSearch(true);
+    return;
+  }
+  const matches = graphPeople.filter(person => mapPersonSearchText(person).includes(needle));
+  if (!matches.length) return;
+  if (!mapSearchRestoreByMode[currentMode]) mapSearchRestoreByMode[currentMode] = {...savedZoom};
+  mapSearchZoomTimer = setTimeout(() => {
+    if (needle !== normalizeMapSearchValue(searchTerm) || activeSection !== "map") return;
+    zoomMapToSearchResults(matches, true);
+  }, delay);
+}
+
 function initGraphV2() {
   svg = d3.select("#map");
   rootLayer = svg.append("g").attr("class", "root-layer");
@@ -4271,6 +4326,7 @@ function updateModeV2(mode, animate = true) {
     needsInitialStructureFit = false;
     requestAnimationFrame(() => fitMapToStructure(false));
   }
+  if (normalizeMapSearchValue(searchTerm)) applySearch(mode === "network" ? 240 : 620);
   persistWorkspaceState(false);
 }
 
@@ -4470,9 +4526,10 @@ function chooseMapSearchSuggestion(index) {
   persistWorkspaceState(false);
 }
 
-function applySearch() {
+function applySearch(zoomDelay = 180) {
   const q = normalizeMapSearchValue(searchTerm);
   nodeLayer?.selectAll("g.person-node").classed("is-dimmed", d => q && !mapPersonSearchText(d).includes(q));
+  scheduleMapSearchZoom(q, zoomDelay);
 }
 
 function showSection(section) {
