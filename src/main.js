@@ -549,6 +549,7 @@ function renderShell() {
                     <label><span>Štítek</span><select id="sql-builder-tag"><option value="">Všechny štítky</option></select></label>
                     <label><span>Město</span><select id="sql-builder-city"><option value="">Všechna města</option></select></label>
                     <label><span>Role obsahuje</span><input id="sql-builder-role" type="text" placeholder="např. vedoucí"></label>
+                    <label><span>E-mail obsahuje</span><input id="sql-builder-email" type="text" placeholder="např. @example.cz"></label>
                     <label><span>Poznámka obsahuje</span><input id="sql-builder-notes" type="text" placeholder="např. zdravotník"></label>
                     <label><span>Věk od</span><input id="sql-builder-age-min" type="number" min="0" max="120" placeholder="bez minima"></label>
                     <label><span>Věk do</span><input id="sql-builder-age-max" type="number" min="0" max="120" placeholder="bez maxima"></label>
@@ -566,6 +567,9 @@ function renderShell() {
   p.age AS vek,
   c.name AS kategorie,
   p.registration_category AS registracni_kategorie,
+  p.city AS mesto,
+  p.email AS email,
+  p.notes AS poznamka,
   ot.name AS primarni_jednotka,
   (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky,
   GROUP_CONCAT(t.name, ', ') AS stitky
@@ -700,6 +704,10 @@ function ensureOrgSchema() {
   if (!columns.includes("registration_category")) db.run("ALTER TABLE people ADD COLUMN registration_category TEXT");
   if (!columns.includes("age")) db.run("ALTER TABLE people ADD COLUMN age INTEGER");
   if (!columns.includes("birth_date")) db.run("ALTER TABLE people ADD COLUMN birth_date TEXT");
+  if (!columns.includes("team")) db.run("ALTER TABLE people ADD COLUMN team TEXT");
+  if (!columns.includes("city")) db.run("ALTER TABLE people ADD COLUMN city TEXT");
+  if (!columns.includes("email")) db.run("ALTER TABLE people ADD COLUMN email TEXT");
+  if (!columns.includes("notes")) db.run("ALTER TABLE people ADD COLUMN notes TEXT");
   const teamColumns = queryObjects("PRAGMA table_info(teams)").map(column => column.name);
   if (!teamColumns.includes("registration_code")) db.run("ALTER TABLE teams ADD COLUMN registration_code TEXT");
   const shouldSeedStructure = !tableExists || +queryObjects("SELECT COUNT(*) AS n FROM teams")[0].n === 0;
@@ -3536,10 +3544,15 @@ function nodeHtmlV2(d) {
     ["město", d.city],
     ["primární jednotka", d.org_team, true],
     ["oddíly", d.oddily, true],
-    ["e-mail", d.email, true],
+    ["e-mail", d.email, true, false, "email"],
     ["poznámky", d.notes, true, true]
   ].filter(([, value]) => value != null && String(value).trim());
-  const factHtml = facts.map(([label, value, wide, notes]) => `<div class="node-fact${wide ? " wide" : ""}${notes ? " notes" : ""}"><b>${escapeHtml(value)}</b>${escapeHtml(label)}</div>`).join("");
+  const factHtml = facts.map(([label, value, wide, notes, action]) => {
+    const content = action === "email"
+      ? `<a class="node-action-link node-email-link" href="${escapeHtml(`mailto:${String(value).trim()}`)}">${escapeHtml(value)}</a>`
+      : `<b>${escapeHtml(value)}</b>`;
+    return `<div class="node-fact${wide ? " wide" : ""}${notes ? " notes" : ""}${action ? " actionable" : ""}">${content}${escapeHtml(label)}</div>`;
+  }).join("");
   const unitNames = (d.unitNames?.length ? d.unitNames : String(d.jednotky || "").split(" · "))
     .map(name => String(name).trim())
     .filter(Boolean);
@@ -3549,7 +3562,7 @@ function nodeHtmlV2(d) {
   const tags = d.tagsArray.map(tag => `<span class="node-tag">#${escapeHtml(tag)}</span>`).join("");
   return `<div class="node-card" xmlns="http://www.w3.org/1999/xhtml">
     <div class="node-main"><div class="node-name">${escapeHtml(personName(d))}</div><button class="node-close" type="button" aria-label="Zavřít informace o osobě">&times;</button></div>
-    <div class="node-more"><div class="node-rule"></div><div class="node-facts">${factHtml}${unitHtml}</div><div class="node-tags">${tags || '<span class="node-tag">bez štítků</span>'}</div></div>
+    <div class="node-more"><div class="node-rule"></div><div class="node-facts">${factHtml}${unitHtml}</div><div class="node-tag-section"><span>Kvalifikace / štítky</span><div class="node-tags">${tags || '<span class="node-tag">bez štítků</span>'}</div></div></div>
   </div>`;
 }
 
@@ -4144,6 +4157,9 @@ function renderGraphV2() {
     });
   nodes.select(".person-tags-label").text(d => d.tagsArray.slice(0, 2).map(tag => `#${tag}`).join(" · "));
   nodes.select("title").text(d => `${personName(d)} · ${birthDateLabel(d.birth_date)} · ${ageLabel(d.age)} · ${d.org_team || "bez primární jednotky"} · ${d.jednotky || "bez jednotky"}`);
+  nodes.selectAll(".node-action-link")
+    .on("pointerdown", event => event.stopPropagation())
+    .on("click", event => event.stopPropagation());
   nodes.on("click", function(event, d) {
     event.stopPropagation();
     hideFieldSectionInfo();
@@ -4545,7 +4561,7 @@ function mapPersonSearchText(person) {
   return normalizeMapSearchValue([
     personName(person), person.nickname, person.role, person.category,
     person.registration_category, person.org_team, person.jednotky,
-    person.oddily, person.city, person.tags, person.birth_date,
+    person.oddily, person.city, person.email, person.notes, person.tags, person.birth_date,
     birthDateLabel(person.birth_date), ageLabel(person.age)
   ].join(" "));
 }
@@ -5486,6 +5502,7 @@ function sqlBuilderState() {
     tagId: numericValue("#sql-builder-tag"),
     city: document.querySelector("#sql-builder-city")?.value || "",
     role: document.querySelector("#sql-builder-role")?.value.trim() || "",
+    email: document.querySelector("#sql-builder-email")?.value.trim() || "",
     notes: document.querySelector("#sql-builder-notes")?.value.trim() || "",
     ageMin: numericValue("#sql-builder-age-min"),
     ageMax: numericValue("#sql-builder-age-max"),
@@ -5505,6 +5522,7 @@ function buildSqlLabQuery() {
   if (state.tagId != null) where.push(`EXISTS (SELECT 1 FROM people_tags ftag WHERE ftag.person_id = p.id AND ftag.tag_id = ${Math.trunc(state.tagId)})`);
   if (state.city) where.push(`TRIM(COALESCE(p.city, '')) = ${sqlLiteral(state.city)} COLLATE NOCASE`);
   if (state.role) where.push(`COALESCE(p.role, '') LIKE ${sqlLiteral(`%${state.role}%`)} COLLATE NOCASE`);
+  if (state.email) where.push(`COALESCE(p.email, '') LIKE ${sqlLiteral(`%${state.email}%`)} COLLATE NOCASE`);
   if (state.notes) where.push(`COALESCE(p.notes, '') LIKE ${sqlLiteral(`%${state.notes}%`)} COLLATE NOCASE`);
   if (state.ageMin != null) where.push(`p.age >= ${Math.max(0, Math.min(120, Math.trunc(state.ageMin)))}`);
   if (state.ageMax != null) where.push(`p.age <= ${Math.max(0, Math.min(120, Math.trunc(state.ageMax)))}`);
@@ -5530,6 +5548,7 @@ WHERE ${where.join("\n  AND ")}`;
   c.name AS kategorie,
   p.registration_category AS registracni_kategorie,
   p.city AS mesto,
+  p.email AS email,
   p.notes AS poznamka,
   ot.name AS primarni_jednotka,
   (SELECT GROUP_CONCAT(unit_name, ', ') FROM (SELECT u.name AS unit_name FROM people_teams pu JOIN teams u ON u.id = pu.team_id WHERE pu.person_id = p.id ORDER BY u.level, u.name)) AS jednotky,
@@ -5564,6 +5583,7 @@ function syncSqlBuilderUi() {
   if (state.tagId != null) filters.push(`#${tagsData.find(tag => tag.id === state.tagId)?.name || "štítek"}`);
   if (state.city) filters.push(state.city);
   if (state.role) filters.push(`role: ${state.role}`);
+  if (state.email) filters.push(`e-mail: ${state.email}`);
   if (state.notes) filters.push(`poznámka: ${state.notes}`);
   if (state.ageMin != null || state.ageMax != null) filters.push(`věk ${state.ageMin ?? 0}–${state.ageMax ?? 120}`);
   const action = state.kind === "list" ? "Seznam lidí" : state.kind === "age" ? "Věkové shrnutí" : "Počet lidí";
@@ -5591,6 +5611,7 @@ function openUnitPeopleInSql(teamId) {
   document.querySelector("#sql-builder-tag").value = "";
   document.querySelector("#sql-builder-city").value = "";
   document.querySelector("#sql-builder-role").value = "";
+  document.querySelector("#sql-builder-email").value = "";
   document.querySelector("#sql-builder-notes").value = "";
   document.querySelector("#sql-builder-age-min").value = "";
   document.querySelector("#sql-builder-age-max").value = "";
@@ -5626,7 +5647,26 @@ function runSelect() {
     const thead = table.createTHead().insertRow();
     columns.forEach(c => { const th = document.createElement("th"); th.textContent = c; thead.appendChild(th); });
     const tbody = table.createTBody();
-    values.forEach(row => { const tr = tbody.insertRow(); row.forEach(value => { const td = tr.insertCell(); td.textContent = value ?? "—"; td.title = String(value ?? ""); }); });
+    values.forEach(row => {
+      const tr = tbody.insertRow();
+      row.forEach((value, index) => {
+        const td = tr.insertCell();
+        const text = String(value ?? "");
+        const columnKey = normalizeImportText(columns[index]);
+        const isEmail = ["email", "e mail"].includes(columnKey) && text.includes("@");
+        if (isEmail) {
+          const link = document.createElement("a");
+          link.className = "result-action-link result-email-link";
+          link.href = `mailto:${text.trim()}`;
+          link.textContent = text.trim();
+          td.className = "result-cell-action";
+          td.appendChild(link);
+        } else {
+          td.textContent = value ?? "—";
+        }
+        td.title = text;
+      });
+    });
     output.replaceChildren(table);
     meta.textContent = `${values.length} ${values.length === 1 ? "řádek" : "řádků"} · ${Math.round(performance.now()-started)} ms`;
   } catch (error) {
@@ -5636,8 +5676,8 @@ function runSelect() {
 }
 
 const presets = {
-  all: `SELECT p.name AS jmeno, p.nickname AS prezdivka, p.role, p.birth_date AS datum_narozeni, p.age AS vek, c.name AS kategorie, p.registration_category AS registracni_kategorie, ot.name AS primarni_jednotka,\n  (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky,\n  GROUP_CONCAT(t.name, ', ') AS stitky\nFROM people p\nLEFT JOIN categories c ON c.id = p.category_id\nLEFT JOIN teams ot ON ot.id = p.org_team_id\nLEFT JOIN people_tags pt ON pt.person_id = p.id\nLEFT JOIN tags t ON t.id = pt.tag_id\nGROUP BY p.id\nORDER BY p.name;`,
-  young: `SELECT p.name AS jmeno, p.age AS vek, p.role, ot.name AS primarni_jednotka,\n  (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky\nFROM people p\nLEFT JOIN teams ot ON ot.id = p.org_team_id\nWHERE p.age <= 30\nORDER BY p.age;`,
+  all: `SELECT p.name AS jmeno, p.nickname AS prezdivka, p.role, p.birth_date AS datum_narozeni, p.age AS vek, c.name AS kategorie, p.registration_category AS registracni_kategorie, p.city AS mesto, p.email AS email, p.notes AS poznamka, ot.name AS primarni_jednotka,\n  (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky,\n  GROUP_CONCAT(t.name, ', ') AS stitky\nFROM people p\nLEFT JOIN categories c ON c.id = p.category_id\nLEFT JOIN teams ot ON ot.id = p.org_team_id\nLEFT JOIN people_tags pt ON pt.person_id = p.id\nLEFT JOIN tags t ON t.id = pt.tag_id\nGROUP BY p.id\nORDER BY p.name;`,
+  young: `SELECT p.name AS jmeno, p.birth_date AS datum_narozeni, p.age AS vek, p.role, p.email AS email, ot.name AS primarni_jednotka,\n  (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky\nFROM people p\nLEFT JOIN teams ot ON ot.id = p.org_team_id\nWHERE p.age <= 30\nORDER BY p.age;`,
   category: `SELECT c.name AS kategorie, COUNT(p.id) AS pocet_lidi, ROUND(AVG(p.age), 1) AS prumerny_vek\nFROM categories c\nLEFT JOIN people p ON p.category_id = c.id\nGROUP BY c.id\nORDER BY pocet_lidi DESC;`,
   tags: `SELECT t.name AS stitek, COUNT(pt.person_id) AS pocet_lidi\nFROM tags t\nLEFT JOIN people_tags pt ON pt.tag_id = t.id\nGROUP BY t.id\nORDER BY pocet_lidi DESC, t.name;`
 };
