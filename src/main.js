@@ -143,7 +143,7 @@ const editorAutosaveTimers = new Map();
 const editorAutosaveVersions = new WeakMap();
 let editorAutosaveQueue = Promise.resolve();
 const VIEW_STATE_KEY = "mapa-strediska-workspace-v1";
-const STRUCTURE_LAYOUT_VERSION = 44;
+const STRUCTURE_LAYOUT_VERSION = 45;
 const PEOPLE_CLUSTER_BUFFER = 220;
 const CROSS_GROUP_PERSON_BUFFER = 130;
 const CLUSTER_CLEAR_GAP = 210;
@@ -2803,7 +2803,16 @@ function personOrbitTargets(width, height, layout) {
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
   groups.forEach((members, teamId) => {
     const home = layout.get(teamId) || [centerX, centerY];
-    const baseAngle = Math.atan2(home[1] - centerY, home[0] - centerX);
+    const homeTeam = teamById(teamId);
+    const parentHome = homeTeam?.parent_id != null ? layout.get(+homeTeam.parent_id) : null;
+    const directionOrigin = parentHome || [centerX, centerY];
+    let directionX = home[0] - directionOrigin[0];
+    let directionY = home[1] - directionOrigin[1];
+    if (Math.hypot(directionX, directionY) < 1) {
+      directionX = home[0] - centerX;
+      directionY = home[1] - centerY;
+    }
+    const baseAngle = Math.hypot(directionX, directionY) < 1 ? 0 : Math.atan2(directionY, directionX);
     const ordered = [...members].sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id);
     const populationRadius = Math.max(72, 30 + Math.sqrt(Math.max(1, ordered.length)) * 34);
     const islandOffset = 44 + populationRadius * .34;
