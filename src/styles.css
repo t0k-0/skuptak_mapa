@@ -486,6 +486,16 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 .age-axis text { fill: var(--muted); font: 12px "DM Mono", monospace; }
 .age-unknown-label { fill: var(--muted); font: 11px "DM Mono", monospace; }
 .age-guide { stroke: var(--line); stroke-dasharray: 3 7; }
+.age-board-heading { fill: var(--muted); font: 700 12px "DM Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.age-group { pointer-events: none; }
+.age-group rect { fill: color-mix(in srgb, var(--surface-subtle) 92%, transparent); stroke: var(--line-strong); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.age-group line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.age-group-title { fill: var(--ink); font: 700 17px "SkautBold", "Open Sans", sans-serif; }
+.age-group-count { fill: var(--muted); font: 9px "DM Mono", monospace; }
+.age-group-unknown rect { fill: color-mix(in srgb, var(--paper-deep) 72%, transparent); stroke-dasharray: 5 4; }
+#map[data-mode="age"] .person-dot { stroke-width: 1.7; }
+#map[data-mode="age"] .person-node:hover .person-dot { r: 8.5; stroke-width: 2.5; }
+#map[data-mode="age"] .relationship-link { stroke-dasharray: 2 5; }
 
 .team-node { cursor: grab; }
 .team-node rect { fill: var(--glass-strong); stroke: var(--line-strong); stroke-width: 1.2; filter: drop-shadow(0 7px 13px color-mix(in srgb, var(--ink) 12%, transparent)); transition: fill .2s, stroke .2s; }

@@ -562,6 +562,7 @@ function renderShell() {
   p.name AS jmeno,
   p.nickname AS prezdivka,
   p.role AS role,
+  p.birth_date AS datum_narozeni,
   p.age AS vek,
   c.name AS kategorie,
   p.registration_category AS registracni_kategorie,
@@ -660,7 +661,7 @@ function createSchema() {
   db.run(`
     CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT, color TEXT NOT NULL);
     CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT NOT NULL, parent_id INTEGER REFERENCES teams(id), level INTEGER NOT NULL DEFAULT 0, registration_code TEXT);
-    CREATE TABLE people (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, nickname TEXT, role TEXT NOT NULL, age INTEGER, category_id INTEGER REFERENCES categories(id), registration_category TEXT, team TEXT, city TEXT, email TEXT, notes TEXT, org_team_id INTEGER REFERENCES teams(id));
+    CREATE TABLE people (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, nickname TEXT, role TEXT NOT NULL, age INTEGER, birth_date TEXT, category_id INTEGER REFERENCES categories(id), registration_category TEXT, team TEXT, city TEXT, email TEXT, notes TEXT, org_team_id INTEGER REFERENCES teams(id));
     CREATE TABLE people_teams (person_id INTEGER REFERENCES people(id), team_id INTEGER REFERENCES teams(id), PRIMARY KEY(person_id, team_id));
     CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
     CREATE TABLE people_tags (person_id INTEGER REFERENCES people(id), tag_id INTEGER REFERENCES tags(id), PRIMARY KEY(person_id, tag_id));
@@ -697,6 +698,8 @@ function ensureOrgSchema() {
   }
   if (!columns.includes("nickname")) db.run("ALTER TABLE people ADD COLUMN nickname TEXT");
   if (!columns.includes("registration_category")) db.run("ALTER TABLE people ADD COLUMN registration_category TEXT");
+  if (!columns.includes("age")) db.run("ALTER TABLE people ADD COLUMN age INTEGER");
+  if (!columns.includes("birth_date")) db.run("ALTER TABLE people ADD COLUMN birth_date TEXT");
   const teamColumns = queryObjects("PRAGMA table_info(teams)").map(column => column.name);
   if (!teamColumns.includes("registration_code")) db.run("ALTER TABLE teams ADD COLUMN registration_code TEXT");
   const shouldSeedStructure = !tableExists || +queryObjects("SELECT COUNT(*) AS n FROM teams")[0].n === 0;
@@ -725,7 +728,59 @@ function queryObjects(sql, params = []) {
   return rows;
 }
 
+function normalizeBirthDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const date = new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86400000));
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+  }
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  let match = text.match(/^(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})(?:\D.*)?$/);
+  if (!match) {
+    const local = text.match(/^(\d{1,2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{4})(?:\D.*)?$/);
+    if (local) match = [local[0], local[3], local[2], local[1]];
+  }
+  if (!match) return "";
+  const year = +match[1];
+  const month = +match[2];
+  const day = +match[3];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function ageFromBirthDate(value, now = new Date()) {
+  const normalized = normalizeBirthDate(value);
+  if (!normalized) return null;
+  const [year, month, day] = normalized.split("-").map(Number);
+  let age = now.getFullYear() - year;
+  if (now.getMonth() + 1 < month || (now.getMonth() + 1 === month && now.getDate() < day)) age -= 1;
+  return age >= 0 && age <= 130 ? age : null;
+}
+
+function birthDateLabel(value) {
+  const normalized = normalizeBirthDate(value);
+  if (!normalized) return "Neuvedeno";
+  const [year, month, day] = normalized.split("-").map(Number);
+  return new Intl.DateTimeFormat("cs-CZ", {day: "numeric", month: "numeric", year: "numeric"}).format(new Date(year, month - 1, day));
+}
+
+function refreshDerivedAges() {
+  const rows = queryObjects("SELECT id,birth_date,age FROM people WHERE birth_date IS NOT NULL AND TRIM(birth_date)<>''");
+  const update = db.prepare("UPDATE people SET age=? WHERE id=?");
+  rows.forEach(row => {
+    const age = ageFromBirthDate(row.birth_date);
+    const currentAge = row.age == null || row.age === "" ? null : +row.age;
+    if (currentAge !== age) update.run([age, row.id]);
+  });
+  update.free();
+}
+
 async function loadPeople() {
+  refreshDerivedAges();
   people = queryObjects(`
     SELECT p.*, c.name AS category, c.color, ot.name AS org_team,
       GROUP_CONCAT(t.name, ' · ') AS tags
@@ -735,7 +790,7 @@ async function loadPeople() {
     LEFT JOIN people_tags pt ON pt.person_id = p.id
     LEFT JOIN tags t ON t.id = pt.tag_id
     GROUP BY p.id ORDER BY p.name
-  `).map(d => ({...d, id: +d.id, age: d.age == null || d.age === "" ? null : +d.age, category: d.category || "Bez kategorie", color: d.color || "#72766f", tagsArray: d.tags ? d.tags.split(" · ") : []}));
+  `).map(d => ({...d, id: +d.id, birth_date: normalizeBirthDate(d.birth_date), age: d.birth_date ? ageFromBirthDate(d.birth_date) : (d.age == null || d.age === "" ? null : +d.age), category: d.category || "Bez kategorie", color: d.color || "#72766f", tagsArray: d.tags ? d.tags.split(" · ") : []}));
   teams = queryObjects("SELECT id, name, parent_id, level FROM teams ORDER BY level, parent_id, id")
     .map(d => ({...d, id: +d.id, parent_id: d.parent_id == null ? null : +d.parent_id, level: +d.level, nodeType: "team", uid: `team-${d.id}`}));
   const memberships = queryObjects(`SELECT pt.person_id, pt.team_id, t.name, t.level, t.parent_id
@@ -2178,7 +2233,8 @@ function rectangularFieldLayout(width, height) {
 }
 
 const FILTER_ATTRIBUTES = [
-  ["name", "Jméno"], ["nickname", "Přezdívka"], ["role", "Role"], ["age", "Věk"],
+  ["name", "Jméno"], ["nickname", "Přezdívka"], ["role", "Role"],
+  ["birth_date", "Datum narození"], ["age", "Věk (vypočtený)"],
   ["category", "Kategorie"], ["registration_category", "Registrační kategorie"], ["city", "Město"],
   ["email", "E-mail"], ["tags", "Štítky"], ["unit", "Jednotka"], ["notes", "Poznámky"]
 ];
@@ -2237,6 +2293,7 @@ const QUERY_FIELD_ALIASES = {
   name: "name", jmeno: "name",
   nickname: "nickname", prezdivka: "nickname",
   role: "role",
+  birth_date: "birth_date", datum_narozeni: "birth_date", narozeni: "birth_date",
   age: "age", vek: "age",
   category: "category", kategorie: "category",
   registration_category: "registration_category", registrace: "registration_category",
@@ -3269,32 +3326,73 @@ function enforceNoNodeOverlap(nodes, maxPasses = 24) {
   });
 }
 
-function ageStaticTargets(height, scale) {
+function ageGroupLabel(age) {
+  if (!Number.isFinite(age)) return "Neuvedeno";
+  if (age === 1) return "1 rok";
+  if (age >= 2 && age <= 4) return `${age} roky`;
+  return `${age} let`;
+}
+
+function ageBoardLayout(width) {
   const targets = new Map();
-  const ordered = [...graphPeople].map(person => ({
-    person,
-    x: Number.isFinite(person.age) ? scale(person.age) : 64,
-    box: nodeCollisionBox(person)
-  })).sort((a, b) => a.x - b.x || a.person.id - b.person.id);
-  const lanes = [];
-  const assignments = [];
-  ordered.forEach(item => {
-    const left = item.x - item.box.halfWidth;
-    let lane = lanes.findIndex(right => right + 10 <= left);
-    if (lane < 0) {
-      lane = lanes.length;
-      lanes.push(-Infinity);
-    }
-    lanes[lane] = item.x + item.box.halfWidth;
-    assignments.push({...item, lane});
+  const grouped = d3.groups(graphPeople, person => Number.isFinite(person.age) ? Math.floor(person.age) : null)
+    .map(([age, members]) => ({
+      age,
+      members: [...members].sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id)
+    }))
+    .sort((a, b) => {
+      if (a.age == null) return 1;
+      if (b.age == null) return -1;
+      return a.age - b.age;
+    });
+  const cell = 29;
+  const gap = 22;
+  const cards = grouped.map(group => {
+    const columns = Math.max(2, Math.min(8, Math.ceil(Math.sqrt(group.members.length * 1.35))));
+    const rows = Math.max(1, Math.ceil(group.members.length / columns));
+    return {
+      ...group,
+      columns,
+      rows,
+      width: Math.max(132, columns * cell + 34),
+      height: 58 + rows * cell + 18
+    };
   });
-  const laneHeight = Math.max(34, (d3.max(ordered, item => item.box.halfHeight * 2) || 26) + 8);
-  const centerY = Math.max(80, height * .44);
-  assignments.forEach(item => targets.set(item.person.id, [
-    item.x,
-    centerY + (item.lane - (lanes.length - 1) / 2) * laneHeight
-  ]));
-  return targets;
+  const totalArea = d3.sum(cards, card => (card.width + gap) * (card.height + gap));
+  const boardWidth = Math.max(Math.max(760, width - 100), Math.min(2500, Math.sqrt(Math.max(1, totalArea) * 1.72)));
+  let cursorX = 54;
+  let cursorY = 76;
+  let rowHeight = 0;
+  cards.forEach(card => {
+    if (cursorX > 54 && cursorX + card.width > boardWidth + 54) {
+      cursorX = 54;
+      cursorY += rowHeight + gap;
+      rowHeight = 0;
+    }
+    card.x = cursorX;
+    card.y = cursorY;
+    card.members.forEach((person, index) => {
+      const row = Math.floor(index / card.columns);
+      const column = index % card.columns;
+      const populatedColumns = row === card.rows - 1 && card.members.length % card.columns
+        ? card.members.length % card.columns
+        : card.columns;
+      const startX = card.x + card.width / 2 - (populatedColumns - 1) * cell / 2;
+      targets.set(person.id, [startX + column * cell, card.y + 65 + row * cell]);
+    });
+    cursorX += card.width + gap;
+    rowHeight = Math.max(rowHeight, card.height);
+  });
+  return {
+    targets,
+    cards,
+    bounds: {
+      minX: 36,
+      minY: 28,
+      maxX: Math.max(160, d3.max(cards, card => card.x + card.width) || 160),
+      maxY: Math.max(160, d3.max(cards, card => card.y + card.height) || 160)
+    }
+  };
 }
 
 function structureClusterHaloPath(cluster) {
@@ -3431,6 +3529,7 @@ function nodeHtmlV2(d) {
   const facts = [
     ["přezdívka", d.nickname],
     ["role", d.role],
+    ["datum narození", d.birth_date ? birthDateLabel(d.birth_date) : ""],
     ["věk", ageLabel(d.age)],
     ["kategorie", d.category],
     ["registrační kategorie", d.registration_category],
@@ -3842,6 +3941,16 @@ function fitMapToStructure(animate = true) {
         maxY = Math.max(maxY, d3.max(fields, field => field.bounds?.maxY ?? field.y));
       }
     }
+    if (currentMode === "age") {
+      const ageCards = [];
+      axisLayer?.selectAll("g.age-group").each(card => ageCards.push(card));
+      if (ageCards.length) {
+        minX = Math.min(minX, d3.min(ageCards, card => card.x));
+        maxX = Math.max(maxX, d3.max(ageCards, card => card.x + card.width));
+        minY = Math.min(minY, d3.min(ageCards, card => card.y));
+        maxY = Math.max(maxY, d3.max(ageCards, card => card.y + card.height));
+      }
+    }
   } else {
     const centerX = width / 2;
     const centerY = height / 2 + 20;
@@ -4034,7 +4143,7 @@ function renderGraphV2() {
       d.labelWidth = Math.max(fallbackWidth, Math.ceil(this.getComputedTextLength()) + 16);
     });
   nodes.select(".person-tags-label").text(d => d.tagsArray.slice(0, 2).map(tag => `#${tag}`).join(" · "));
-  nodes.select("title").text(d => `${personName(d)} · ${ageLabel(d.age)} · ${d.org_team || "bez primární jednotky"} · ${d.jednotky || "bez jednotky"}`);
+  nodes.select("title").text(d => `${personName(d)} · ${birthDateLabel(d.birth_date)} · ${ageLabel(d.age)} · ${d.org_team || "bez primární jednotky"} · ${d.jednotky || "bez jednotky"}`);
   nodes.on("click", function(event, d) {
     event.stopPropagation();
     hideFieldSectionInfo();
@@ -4150,7 +4259,9 @@ function updateModeV2(mode, animate = true) {
   const mapHint = document.querySelector(".map-hint");
   if (mapHint) mapHint.textContent = mode === "field" && fieldDimension === "oddil"
     ? "Najet na oddíl = ukázat dosah · kliknout = připnout · Esc = zavřít"
-    : "Přetáhnout · kliknout pro detail · úpravy jsou v editačním dashboardu";
+    : mode === "age"
+      ? "Věk je vypočítaný z data narození · skupiny jsou seřazené · kliknout pro detail"
+      : "Přetáhnout · kliknout pro detail";
   syncFieldTagPickerVisibility();
   const width = mapView.clientWidth;
   const height = mapView.clientHeight;
@@ -4306,18 +4417,44 @@ function updateModeV2(mode, animate = true) {
     graphTeams.forEach(team => { team.fx = null; team.fy = null; });
     teamLayer.transition().duration(animate ? 250 : 0).style("opacity", 0);
     structureLinkLayer.transition().duration(animate ? 250 : 0).style("opacity", 0);
-    relationshipLinkLayer.transition().duration(animate ? 250 : 0).style("opacity", displayOptions.secondary ? .2 : 0);
-    const ages = graphPeople.map(person => person.age).filter(Number.isFinite);
-    const minAge = ages.length ? d3.min(ages) : 0;
-    const maxAge = ages.length ? d3.max(ages) : 100;
-    const domainMin = Math.floor((minAge - 2) / 5) * 5;
-    const domainMax = Math.max(domainMin + 5, Math.ceil((maxAge + 2) / 5) * 5);
-    const scale = d3.scaleLinear().domain([domainMin, domainMax]).range([145, width - 70]);
-    const axisY = Math.max(100, height - 70);
-    axisLayer.append("g").attr("class", "age-axis").attr("transform", `translate(0,${axisY})`).call(d3.axisBottom(scale).ticks(Math.min(8, width/110)).tickFormat(value => `${value} let`));
-    axisLayer.append("text").attr("class", "age-unknown-label").attr("x", 64).attr("y", axisY + 4).attr("text-anchor", "middle").text("neuvedeno");
-    scale.ticks(8).forEach(value => axisLayer.append("line").attr("class", "age-guide").attr("x1", scale(value)).attr("x2", scale(value)).attr("y1", 115).attr("y2", axisY));
-    applyStaticGraphLayout(ageStaticTargets(height, scale), animate && !viewChanged);
+    relationshipLinkLayer.transition().duration(animate ? 250 : 0).style("opacity", displayOptions.secondary ? .11 : 0);
+    const ageLayout = ageBoardLayout(width);
+    axisLayer.append("text")
+      .attr("class", "age-board-heading")
+      .attr("x", ageLayout.bounds.minX)
+      .attr("y", 42)
+      .text("Věk · od nejmladších po nejstarší");
+    const ageGroups = axisLayer.selectAll("g.age-group")
+      .data(ageLayout.cards, card => card.age ?? "unknown")
+      .join("g")
+      .attr("class", card => `age-group${card.age == null ? " age-group-unknown" : ""}`)
+      .attr("transform", card => `translate(${card.x},${card.y})`);
+    ageGroups.append("rect")
+      .attr("width", card => card.width)
+      .attr("height", card => card.height)
+      .attr("rx", 18);
+    ageGroups.append("line")
+      .attr("x1", 15)
+      .attr("x2", card => card.width - 15)
+      .attr("y1", 45)
+      .attr("y2", 45);
+    ageGroups.append("text")
+      .attr("class", "age-group-title")
+      .attr("x", 16)
+      .attr("y", 29)
+      .text(card => ageGroupLabel(card.age));
+    ageGroups.append("text")
+      .attr("class", "age-group-count")
+      .attr("x", card => card.width - 16)
+      .attr("y", 28)
+      .attr("text-anchor", "end")
+      .text(card => `${card.members.length} ${card.members.length === 1 ? "člověk" : "lidí"}`);
+    nodeLayer.selectAll("circle.person-dot").attr("r", 6.5);
+    applyStaticGraphLayout(ageLayout.targets, animate && !viewChanged);
+    clearTimeout(graphFitTimer);
+    graphFitTimer = setTimeout(() => {
+      if (currentMode === "age") fitMapToStructure(animate);
+    }, animate ? 520 : 20);
   }
   if (mode === "network") {
     simulation.force("collide", collisionForceV2()).alpha(animate ? .42 : .2).restart();
@@ -4408,7 +4545,8 @@ function mapPersonSearchText(person) {
   return normalizeMapSearchValue([
     personName(person), person.nickname, person.role, person.category,
     person.registration_category, person.org_team, person.jednotky,
-    person.oddily, person.city, person.tags
+    person.oddily, person.city, person.tags, person.birth_date,
+    birthDateLabel(person.birth_date), ageLabel(person.age)
   ].join(" "));
 }
 
@@ -4815,8 +4953,9 @@ function validateImportedDatabase(candidate) {
   const columnStmt = candidate.prepare("PRAGMA table_info(people)");
   while (columnStmt.step()) columns.add(columnStmt.getAsObject().name);
   columnStmt.free();
-  const missingColumns = ["id", "name", "role", "age", "category_id"].filter(name => !columns.has(name));
+  const missingColumns = ["id", "name", "role", "category_id"].filter(name => !columns.has(name));
   if (missingColumns.length) throw new Error(`Tabulka people nemá sloupce: ${missingColumns.join(", ")}.`);
+  if (!columns.has("age") && !columns.has("birth_date")) throw new Error("Tabulka people musí obsahovat sloupec age nebo birth_date.");
 }
 
 async function importDatabaseFile(event) {
@@ -5386,6 +5525,7 @@ WHERE ${where.join("\n  AND ")}`;
   p.name AS jmeno,
   p.nickname AS prezdivka,
   p.role AS role,
+  p.birth_date AS datum_narozeni,
   p.age AS vek,
   c.name AS kategorie,
   p.registration_category AS registracni_kategorie,
@@ -5496,7 +5636,7 @@ function runSelect() {
 }
 
 const presets = {
-  all: `SELECT p.name AS jmeno, p.nickname AS prezdivka, p.role, p.age AS vek, c.name AS kategorie, p.registration_category AS registracni_kategorie, ot.name AS primarni_jednotka,\n  (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky,\n  GROUP_CONCAT(t.name, ', ') AS stitky\nFROM people p\nLEFT JOIN categories c ON c.id = p.category_id\nLEFT JOIN teams ot ON ot.id = p.org_team_id\nLEFT JOIN people_tags pt ON pt.person_id = p.id\nLEFT JOIN tags t ON t.id = pt.tag_id\nGROUP BY p.id\nORDER BY p.name;`,
+  all: `SELECT p.name AS jmeno, p.nickname AS prezdivka, p.role, p.birth_date AS datum_narozeni, p.age AS vek, c.name AS kategorie, p.registration_category AS registracni_kategorie, ot.name AS primarni_jednotka,\n  (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky,\n  GROUP_CONCAT(t.name, ', ') AS stitky\nFROM people p\nLEFT JOIN categories c ON c.id = p.category_id\nLEFT JOIN teams ot ON ot.id = p.org_team_id\nLEFT JOIN people_tags pt ON pt.person_id = p.id\nLEFT JOIN tags t ON t.id = pt.tag_id\nGROUP BY p.id\nORDER BY p.name;`,
   young: `SELECT p.name AS jmeno, p.age AS vek, p.role, ot.name AS primarni_jednotka,\n  (SELECT GROUP_CONCAT(o.name, ', ') FROM people_teams pom JOIN teams o ON o.id=pom.team_id WHERE pom.person_id=p.id) AS jednotky\nFROM people p\nLEFT JOIN teams ot ON ot.id = p.org_team_id\nWHERE p.age <= 30\nORDER BY p.age;`,
   category: `SELECT c.name AS kategorie, COUNT(p.id) AS pocet_lidi, ROUND(AVG(p.age), 1) AS prumerny_vek\nFROM categories c\nLEFT JOIN people p ON p.category_id = c.id\nGROUP BY c.id\nORDER BY pocet_lidi DESC;`,
   tags: `SELECT t.name AS stitek, COUNT(pt.person_id) AS pocet_lidi\nFROM tags t\nLEFT JOIN people_tags pt ON pt.tag_id = t.id\nGROUP BY t.id\nORDER BY pocet_lidi DESC, t.name;`
