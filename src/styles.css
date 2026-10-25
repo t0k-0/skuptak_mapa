@@ -1550,7 +1550,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .maker-tag-mark {
   position: absolute;
   top: 50%;
-  left: 28px;
+  left: 26px;
   display: block;
   width: 40px;
   height: 40px;
@@ -1692,7 +1692,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   }
 
   :root.landing-page .maker-tag-mark {
-    left: 25px;
+    left: 23px;
     width: 36px;
     height: 36px;
   }
