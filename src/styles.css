@@ -1173,11 +1173,11 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
 /* Landing page: Skuptáci visual identity, based on the supplied Junák guide. */
 :root.landing-page {
-  --landing-ink: #294885;
-  --landing-night: #1f3c69;
-  --landing-blue: #3979b5;
-  --landing-sky: #bdd4df;
-  --landing-cream: #f6ebd8;
+  --landing-ink: #253246;
+  --landing-night: #182231;
+  --landing-blue: #3978b8;
+  --landing-sky: #78b5eb;
+  --landing-cream: #f4f7fa;
   color-scheme: dark;
 }
 
@@ -1225,7 +1225,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
 :root.landing-page .gate-wordmark > span:last-child {
   padding-left: 22px;
-  border-left: 1px solid #6b96ca;
+  border-left: 1px solid var(--landing-sky);
 }
 
 :root.landing-page .gate-wordmark b {
@@ -1270,7 +1270,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   height: 280px;
   clip-path: polygon(0 28%, 23% 0, 100% 16%, 86% 100%, 8% 86%);
   border-radius: 0;
-  background: #255c9e;
+  background: #2f659b;
 }
 
 :root.landing-page .gate-layout::after {
@@ -1280,7 +1280,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   height: 240px;
   clip-path: polygon(14% 0, 100% 0, 88% 76%, 48% 100%, 0 63%);
   border-radius: 0;
-  background: #3979b5;
+  background: var(--landing-blue);
 }
 
 :root.landing-page .gate-intro {
@@ -1324,7 +1324,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
 :root.landing-page .gate-intro > p {
   max-width: 590px;
-  color: #e6edf1;
+  color: #dce7f0;
   font: 400 clamp(15px, 1.25vw, 18px)/1.65 "TheMix", "Open Sans", sans-serif;
 }
 
@@ -1355,7 +1355,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   align-self: center;
   padding: clamp(31px, 3vw, 44px);
   border: 0;
-  border: 2px solid #6b96ca;
+  border: 2px solid var(--landing-sky);
   border-radius: 3px;
   clip-path: polygon(0 22px, 22px 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%);
   background: var(--landing-cream);
@@ -1413,10 +1413,10 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   min-height: 216px;
   padding: 29px;
   border: 2px solid transparent;
-  border: 2px solid #6b96ca;
+  border: 2px solid var(--landing-sky);
   border-radius: 2px;
   clip-path: polygon(0 15px, 15px 0, 100% 0, 100% calc(100% - 20px), calc(100% - 20px) 100%, 0 100%);
-  background: var(--landing-sky);
+  background: #d9e9f5;
   color: var(--landing-ink);
   box-shadow: none;
 }
@@ -1424,7 +1424,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .database-dropzone:hover,
 :root.landing-page .database-dropzone.is-dragging {
   border-color: var(--landing-blue);
-  background: #d7e4ea;
+  background: #e7f0f7;
   box-shadow: none;
   transform: none;
 }
@@ -1475,7 +1475,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .gate-footer {
   min-height: 66px;
   gap: 28px;
-  padding: 0 max(194px, calc((100vw - 1180px) / 2)) 0 max(28px, calc((100vw - 1180px) / 2));
+  padding: 0 max(28px, calc((100vw - 1180px) / 2)) 0 max(194px, calc((100vw - 1180px) / 2));
   background: var(--landing-night);
   color: var(--landing-sky);
   font: 700 9px/1.4 "Open Sans", sans-serif;
@@ -1486,14 +1486,16 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .maker-tag {
   --tk-logo-ground: var(--landing-cream);
   position: fixed;
-  right: 22px;
+  right: auto;
+  left: 22px;
   bottom: 17px;
   z-index: 80;
   display: flex;
+  flex-direction: row-reverse;
   align-items: center;
-  justify-content: flex-end;
-  width: 80px;
-  height: 52px;
+  justify-content: flex-start;
+  width: 56px;
+  height: 56px;
   margin: 0;
   padding: 5px;
   overflow: hidden;
@@ -1503,24 +1505,25 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   background: var(--landing-cream);
   color: var(--landing-ink);
   cursor: pointer;
-  transition: width .24s ease, background-color .2s ease;
+  transition: width .24s ease, column-gap .24s ease, background-color .2s ease;
 }
 
 :root.landing-page .maker-tag:hover,
 :root.landing-page .maker-tag:focus-visible,
 :root.landing-page .maker-tag[aria-expanded="true"] {
-  width: 166px;
-  background: var(--landing-sky);
+  width: 170px;
+  column-gap: 7px;
+  background: #d9e9f5;
 }
 
 :root.landing-page .maker-tag-copy {
   display: flex;
   min-width: 0;
-  max-width: 30px;
+  max-width: 0;
   align-items: baseline;
-  gap: 5px;
+  gap: 4px;
   overflow: hidden;
-  opacity: 1;
+  opacity: 0;
   white-space: nowrap;
   transition: max-width .24s ease, opacity .16s ease;
 }
@@ -1528,27 +1531,16 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .maker-tag:hover .maker-tag-copy,
 :root.landing-page .maker-tag:focus-visible .maker-tag-copy,
 :root.landing-page .maker-tag[aria-expanded="true"] .maker-tag-copy {
-  max-width: 106px;
+  max-width: 103px;
   opacity: 1;
 }
 
 :root.landing-page .maker-tag-copy small {
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  font: 600 9px/1 "Open Sans", sans-serif;
-  transition: max-width .24s ease, opacity .16s ease;
-}
-
-:root.landing-page .maker-tag:hover .maker-tag-copy small,
-:root.landing-page .maker-tag:focus-visible .maker-tag-copy small,
-:root.landing-page .maker-tag[aria-expanded="true"] .maker-tag-copy small {
-  max-width: 58px;
-  opacity: 1;
+  font: 400 9px/1 "DM Mono", monospace;
 }
 
 :root.landing-page .maker-tag-copy strong {
-  font: 700 18px/1 "SkautBold", "Open Sans", sans-serif;
+  font: 500 15px/1 "DM Mono", monospace;
 }
 
 :root.landing-page .maker-tag-mark {
@@ -1671,7 +1663,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
   :root.landing-page .gate-footer {
     gap: 12px;
-    padding: 0 94px 0 17px;
+    padding: 0 17px 0 82px;
   }
 
   :root.landing-page .gate-footer > span:nth-child(2) {
@@ -1679,16 +1671,17 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   }
 
   :root.landing-page .maker-tag {
-    right: 12px;
+    right: auto;
+    left: 12px;
     bottom: 9px;
-    width: 76px;
-    height: 46px;
+    width: 50px;
+    height: 50px;
   }
 
   :root.landing-page .maker-tag:hover,
   :root.landing-page .maker-tag:focus-visible,
   :root.landing-page .maker-tag[aria-expanded="true"] {
-    width: 148px;
+    width: 154px;
   }
 
   :root.landing-page .maker-tag-mark {
