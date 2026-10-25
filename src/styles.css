@@ -1490,14 +1490,11 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   left: 22px;
   bottom: 17px;
   z-index: 80;
-  display: flex;
-  flex-direction: row-reverse;
-  align-items: center;
-  justify-content: center;
+  display: block;
   width: 56px;
   height: 56px;
   margin: 0;
-  padding: 5px;
+  padding: 0;
   overflow: hidden;
   border: 2px solid var(--landing-sky);
   border-radius: 2px;
@@ -1505,35 +1502,41 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   background: #d9e9f5;
   color: var(--landing-ink);
   cursor: pointer;
-  transition: width .24s ease, column-gap .24s ease, background-color .2s ease;
+  transition: width .24s ease, background-color .2s ease;
 }
 
 :root.landing-page .maker-tag:hover,
 :root.landing-page .maker-tag:focus-visible,
 :root.landing-page .maker-tag[aria-expanded="true"] {
   width: 212px;
-  column-gap: 10px;
   background: #d9e9f5;
 }
 
 :root.landing-page .maker-tag-copy {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  left: 60px;
   display: flex;
   min-width: 0;
-  max-width: 0;
   align-items: center;
   justify-content: center;
   gap: 6px;
   overflow: hidden;
   opacity: 0;
+  visibility: hidden;
   white-space: nowrap;
-  transition: max-width .24s ease, opacity .16s ease;
+  transform: translateY(-50%) translateX(-5px);
+  transition: opacity .16s ease, transform .24s ease, visibility 0s linear .24s;
 }
 
 :root.landing-page .maker-tag:hover .maker-tag-copy,
 :root.landing-page .maker-tag:focus-visible .maker-tag-copy,
 :root.landing-page .maker-tag[aria-expanded="true"] .maker-tag-copy {
-  max-width: 118px;
   opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) translateX(0);
+  transition-delay: 0s;
 }
 
 :root.landing-page .maker-tag-copy small {
@@ -1545,11 +1548,14 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 }
 
 :root.landing-page .maker-tag-mark {
+  position: absolute;
+  top: 50%;
+  left: 28px;
   display: block;
   width: 40px;
   height: 40px;
-  flex: 0 0 40px;
   color: var(--landing-ink);
+  transform: translate(-50%, -50%);
 }
 
 @media (max-width: 900px) {
@@ -1686,9 +1692,14 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   }
 
   :root.landing-page .maker-tag-mark {
+    left: 25px;
     width: 36px;
     height: 36px;
-    flex-basis: 36px;
+  }
+
+  :root.landing-page .maker-tag-copy {
+    right: 10px;
+    left: 52px;
   }
 }
 
