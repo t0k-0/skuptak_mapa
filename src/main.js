@@ -3,9 +3,10 @@ import initSqlJs from "sql.js";
 import readExcelFile from "read-excel-file/browser";
 import * as vennLibrary from "venn.js/build/venn.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
-import skuptakHorizontalUrl from "./assets/skuptak-horizontal.svg?url";
 import skuptakHorizontalSvg from "./assets/skuptak-horizontal.svg?raw";
 import skuptakEmblemUrl from "./assets/skuptak-emblem.svg?url";
+import skuptakEmblemSvg from "./assets/skuptak-emblem.svg?raw";
+import skaviatorSvg from "./assets/skaviator-light.svg?raw";
 import "./styles.css";
 
 const skuptakV1DataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(skuptakHorizontalSvg)}`;
@@ -360,7 +361,7 @@ function renderDatabaseGate() {
       <div class="gate-orbit gate-orbit-two" aria-hidden="true"><i></i><i></i></div>
       <header class="gate-header">
         <a class="gate-wordmark" href="." aria-label="Středisko Skuptáci Kutná Hora · úvod">
-          <img src="${skuptakHorizontalUrl}" alt="">
+          <span class="gate-wordmark-logo" aria-hidden="true">${skuptakHorizontalSvg}</span>
           <span><b>Středisko Skuptáci</b><small>Kutná Hora 215.01</small></span>
         </a>
       </header>
@@ -378,7 +379,7 @@ function renderDatabaseGate() {
         <div class="gate-upload-card">
           <div class="gate-emblem-wrap" aria-hidden="true">
             <div class="gate-emblem-halo"></div>
-            <img class="gate-emblem" src="${skuptakEmblemUrl}" alt="">
+            <span class="gate-emblem">${skuptakEmblemSvg}</span>
           </div>
           <div class="gate-card-copy">
             <span class="eyebrow">První krok</span>
@@ -394,7 +395,14 @@ function renderDatabaseGate() {
           <div class="gate-status" id="database-gate-status" data-state="loading" role="status" aria-live="polite"><span class="gate-spinner" aria-hidden="true"></span>Připravuji čtečku databáze…</div>
         </div>
       </section>
-      <footer class="gate-footer"><span>Skupták / ${new Date().getFullYear()}</span><span>Databáze neopustí vaše zařízení</span></footer>
+      <footer class="gate-footer">
+        <span>Skupták / ${new Date().getFullYear()}</span>
+        <span>Databáze neopustí vaše zařízení</span>
+        <button class="maker-tag" id="maker-tag" type="button" aria-expanded="false" aria-label="Made by TK">
+          <span class="maker-tag-copy"><small>Made by:</small><strong>TK</strong></span>
+          <span class="maker-tag-mark" aria-hidden="true">${skaviatorSvg}</span>
+        </button>
+      </footer>
     </main>`;
 
   const input = document.querySelector("#startup-database-file");
@@ -415,6 +423,15 @@ function renderDatabaseGate() {
     dropzone.classList.remove("is-dragging");
   }));
   dropzone.addEventListener("drop", event => handleStartupDatabaseFile(event.dataTransfer?.files?.[0]));
+
+  const makerTag = document.querySelector("#maker-tag");
+  makerTag?.addEventListener("click", () => {
+    const expanded = makerTag.getAttribute("aria-expanded") === "true";
+    makerTag.setAttribute("aria-expanded", String(!expanded));
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") makerTag?.setAttribute("aria-expanded", "false");
+  });
 }
 
 async function handleStartupDatabaseFile(file) {
