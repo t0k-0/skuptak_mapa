@@ -1174,10 +1174,11 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 /* Landing page: Skuptáci visual identity, based on the supplied Junák guide. */
 :root.landing-page {
   --landing-ink: #294885;
+  --landing-night: #1f3c69;
   --landing-blue: #3979b5;
   --landing-sky: #bdd4df;
   --landing-cream: #f6ebd8;
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 :root.landing-page .database-gate {
@@ -1185,8 +1186,8 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   min-height: 100vh;
   padding: 0;
   overflow-x: hidden;
-  background: #fff;
-  color: var(--landing-ink);
+  background: var(--landing-night);
+  color: var(--landing-cream);
 }
 
 :root.landing-page .database-gate::before,
@@ -1198,12 +1199,12 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   min-height: 112px;
   padding: 0 max(28px, calc((100vw - 1180px) / 2));
   border: 0;
-  background: #fff;
+  background: var(--landing-night);
 }
 
 :root.landing-page .gate-wordmark {
   gap: 22px;
-  color: var(--landing-ink);
+  color: var(--landing-cream);
 }
 
 :root.landing-page .gate-wordmark-logo {
@@ -1211,7 +1212,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   width: 92px;
   height: 60px;
   flex: 0 0 auto;
-  color: var(--landing-ink);
+  color: var(--landing-cream);
 }
 
 :root.landing-page .gate-wordmark-logo svg,
@@ -1224,18 +1225,18 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
 :root.landing-page .gate-wordmark > span:last-child {
   padding-left: 22px;
-  border-left: 1px solid var(--landing-sky);
+  border-left: 1px solid #6b96ca;
 }
 
 :root.landing-page .gate-wordmark b {
-  color: var(--landing-ink);
+  color: var(--landing-cream);
   font: 700 clamp(25px, 2.2vw, 32px)/1 "SkautBold", "Open Sans", sans-serif;
   letter-spacing: 0;
 }
 
 :root.landing-page .gate-wordmark small {
   margin-top: 7px;
-  color: #5c748c;
+  color: var(--landing-sky);
   font: italic 700 10px/1.2 "TheMix", "Open Sans", sans-serif;
   letter-spacing: .035em;
   text-transform: none;
@@ -1251,7 +1252,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   margin: 0;
   padding: clamp(60px, 7vh, 88px) max(28px, calc((100vw - 1180px) / 2));
   overflow: hidden;
-  background: var(--landing-cream);
+  background: var(--landing-ink);
 }
 
 :root.landing-page .gate-layout::before,
@@ -1263,32 +1264,34 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 }
 
 :root.landing-page .gate-layout::before {
-  left: max(-170px, calc((100vw - 1500px) / 2));
-  bottom: -185px;
-  width: 430px;
-  height: 330px;
-  border-radius: 48% 52% 42% 58% / 57% 44% 56% 43%;
-  background: var(--landing-sky);
+  left: max(-120px, calc((100vw - 1480px) / 2));
+  bottom: -110px;
+  width: 410px;
+  height: 280px;
+  clip-path: polygon(0 28%, 23% 0, 100% 16%, 86% 100%, 8% 86%);
+  border-radius: 0;
+  background: #255c9e;
 }
 
 :root.landing-page .gate-layout::after {
-  top: -128px;
-  right: max(-92px, calc((100vw - 1460px) / 2));
-  width: 280px;
-  height: 220px;
-  border-radius: 44% 56% 63% 37% / 56% 38% 62% 44%;
-  background: #fff;
+  top: -82px;
+  right: max(-74px, calc((100vw - 1460px) / 2));
+  width: 320px;
+  height: 240px;
+  clip-path: polygon(14% 0, 100% 0, 88% 76%, 48% 100%, 0 63%);
+  border-radius: 0;
+  background: #3979b5;
 }
 
 :root.landing-page .gate-intro {
   position: relative;
   z-index: 2;
   max-width: 650px;
-  color: var(--landing-ink);
+  color: var(--landing-cream);
 }
 
 :root.landing-page .gate-kicker {
-  color: #5c748c;
+  color: var(--landing-sky);
   font: 700 12px/1.4 "Open Sans", sans-serif;
   letter-spacing: .025em;
   text-transform: none;
@@ -1298,19 +1301,19 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   width: 48px;
   height: 5px;
   border-radius: 5px 3px 6px 4px;
-  background: var(--landing-blue);
+  background: var(--landing-sky);
 }
 
 :root.landing-page .gate-intro h1 {
   margin: 24px 0 27px;
-  color: var(--landing-ink);
+  color: var(--landing-cream);
   font: 700 clamp(57px, 6vw, 88px)/.94 "SkautBold", "Open Sans", sans-serif;
   letter-spacing: -.018em;
 }
 
 :root.landing-page .gate-intro h1 em {
   display: inline;
-  color: var(--landing-blue);
+  color: var(--landing-sky);
   font-style: normal;
   font-weight: 700;
 }
@@ -1321,7 +1324,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
 :root.landing-page .gate-intro > p {
   max-width: 590px;
-  color: #445f79;
+  color: #e6edf1;
   font: 400 clamp(15px, 1.25vw, 18px)/1.65 "TheMix", "Open Sans", sans-serif;
 }
 
@@ -1336,14 +1339,14 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--landing-ink);
+  color: var(--landing-cream);
   font: 700 10px/1.4 "Open Sans", sans-serif;
   letter-spacing: .025em;
   text-transform: none;
 }
 
 :root.landing-page .gate-promises svg {
-  color: var(--landing-blue);
+  color: var(--landing-sky);
 }
 
 :root.landing-page .gate-upload-card {
@@ -1352,8 +1355,10 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   align-self: center;
   padding: clamp(31px, 3vw, 44px);
   border: 0;
-  border-radius: 48px 78px 46px 68px / 62px 48px 74px 52px;
-  background: var(--landing-sky);
+  border: 2px solid #6b96ca;
+  border-radius: 3px;
+  clip-path: polygon(0 22px, 22px 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%);
+  background: var(--landing-cream);
   color: var(--landing-ink);
   box-shadow: none;
   backdrop-filter: none;
@@ -1408,8 +1413,10 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   min-height: 216px;
   padding: 29px;
   border: 2px solid transparent;
-  border-radius: 35px 49px 31px 44px / 42px 31px 48px 36px;
-  background: #fff;
+  border: 2px solid #6b96ca;
+  border-radius: 2px;
+  clip-path: polygon(0 15px, 15px 0, 100% 0, 100% calc(100% - 20px), calc(100% - 20px) 100%, 0 100%);
+  background: var(--landing-sky);
   color: var(--landing-ink);
   box-shadow: none;
 }
@@ -1417,13 +1424,13 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .database-dropzone:hover,
 :root.landing-page .database-dropzone.is-dragging {
   border-color: var(--landing-blue);
-  background: #fff;
+  background: #d7e4ea;
   box-shadow: none;
   transform: none;
 }
 
 :root.landing-page .dropzone-icon {
-  border-radius: 46% 54% 44% 56% / 57% 43% 57% 43%;
+  border-radius: 2px;
   background: var(--landing-ink);
   color: #fff;
   transform: none;
@@ -1457,7 +1464,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
 :root.landing-page .gate-status[data-state="error"] {
   padding: 7px 10px;
-  background: #fff;
+  background: var(--landing-cream);
   color: #a21f16;
 }
 
@@ -1468,9 +1475,9 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .gate-footer {
   min-height: 66px;
   gap: 28px;
-  padding: 0 max(28px, calc((100vw - 1180px) / 2));
-  background: #fff;
-  color: #5c748c;
+  padding: 0 max(194px, calc((100vw - 1180px) / 2)) 0 max(28px, calc((100vw - 1180px) / 2));
+  background: var(--landing-night);
+  color: var(--landing-sky);
   font: 700 9px/1.4 "Open Sans", sans-serif;
   letter-spacing: .04em;
   text-transform: none;
@@ -1478,16 +1485,21 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
 :root.landing-page .maker-tag {
   --tk-logo-ground: var(--landing-cream);
+  position: fixed;
+  right: 22px;
+  bottom: 17px;
+  z-index: 80;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  width: 48px;
-  height: 48px;
-  margin-left: auto;
-  padding: 4px;
+  width: 80px;
+  height: 52px;
+  margin: 0;
+  padding: 5px;
   overflow: hidden;
-  border: 0;
-  border-radius: 28px 24px 26px 22px;
+  border: 2px solid var(--landing-sky);
+  border-radius: 2px;
+  clip-path: polygon(0 9px, 9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
   background: var(--landing-cream);
   color: var(--landing-ink);
   cursor: pointer;
@@ -1497,18 +1509,18 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .maker-tag:hover,
 :root.landing-page .maker-tag:focus-visible,
 :root.landing-page .maker-tag[aria-expanded="true"] {
-  width: 158px;
+  width: 166px;
   background: var(--landing-sky);
 }
 
 :root.landing-page .maker-tag-copy {
   display: flex;
   min-width: 0;
-  max-width: 0;
+  max-width: 30px;
   align-items: baseline;
   gap: 5px;
   overflow: hidden;
-  opacity: 0;
+  opacity: 1;
   white-space: nowrap;
   transition: max-width .24s ease, opacity .16s ease;
 }
@@ -1516,12 +1528,23 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .maker-tag:hover .maker-tag-copy,
 :root.landing-page .maker-tag:focus-visible .maker-tag-copy,
 :root.landing-page .maker-tag[aria-expanded="true"] .maker-tag-copy {
-  max-width: 98px;
+  max-width: 106px;
   opacity: 1;
 }
 
 :root.landing-page .maker-tag-copy small {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
   font: 600 9px/1 "Open Sans", sans-serif;
+  transition: max-width .24s ease, opacity .16s ease;
+}
+
+:root.landing-page .maker-tag:hover .maker-tag-copy small,
+:root.landing-page .maker-tag:focus-visible .maker-tag-copy small,
+:root.landing-page .maker-tag[aria-expanded="true"] .maker-tag-copy small {
+  max-width: 58px;
+  opacity: 1;
 }
 
 :root.landing-page .maker-tag-copy strong {
@@ -1624,7 +1647,8 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
   :root.landing-page .gate-upload-card {
     padding: 28px 20px 22px;
-    border-radius: 36px 52px 34px 46px / 46px 34px 50px 38px;
+    border-radius: 2px;
+    clip-path: polygon(0 17px, 17px 0, 100% 0, 100% calc(100% - 23px), calc(100% - 23px) 100%, 0 100%);
   }
 
   :root.landing-page .gate-emblem-wrap {
@@ -1647,7 +1671,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
   :root.landing-page .gate-footer {
     gap: 12px;
-    padding-inline: 17px;
+    padding: 0 94px 0 17px;
   }
 
   :root.landing-page .gate-footer > span:nth-child(2) {
@@ -1655,14 +1679,16 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   }
 
   :root.landing-page .maker-tag {
-    width: 44px;
-    height: 44px;
+    right: 12px;
+    bottom: 9px;
+    width: 76px;
+    height: 46px;
   }
 
   :root.landing-page .maker-tag:hover,
   :root.landing-page .maker-tag:focus-visible,
   :root.landing-page .maker-tag[aria-expanded="true"] {
-    width: 142px;
+    width: 148px;
   }
 
   :root.landing-page .maker-tag-mark {

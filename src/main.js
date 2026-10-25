@@ -395,13 +395,13 @@ function renderDatabaseGate() {
           <div class="gate-status" id="database-gate-status" data-state="loading" role="status" aria-live="polite"><span class="gate-spinner" aria-hidden="true"></span>Připravuji čtečku databáze…</div>
         </div>
       </section>
+      <button class="maker-tag" id="maker-tag" type="button" aria-expanded="false" aria-label="Made by TK">
+        <span class="maker-tag-copy"><small>Made by:</small><strong>TK</strong></span>
+        <span class="maker-tag-mark" aria-hidden="true">${skaviatorSvg}</span>
+      </button>
       <footer class="gate-footer">
         <span>Skupták / ${new Date().getFullYear()}</span>
         <span>Databáze neopustí vaše zařízení</span>
-        <button class="maker-tag" id="maker-tag" type="button" aria-expanded="false" aria-label="Made by TK">
-          <span class="maker-tag-copy"><small>Made by:</small><strong>TK</strong></span>
-          <span class="maker-tag-mark" aria-hidden="true">${skaviatorSvg}</span>
-        </button>
       </footer>
     </main>`;
 
