@@ -1475,7 +1475,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .gate-footer {
   min-height: 66px;
   gap: 28px;
-  padding: 0 max(28px, calc((100vw - 1180px) / 2)) 0 max(194px, calc((100vw - 1180px) / 2));
+  padding: 0 max(28px, calc((100vw - 1180px) / 2)) 0 max(258px, calc((100vw - 1180px) / 2));
   background: var(--landing-night);
   color: var(--landing-sky);
   font: 700 9px/1.4 "Open Sans", sans-serif;
@@ -1484,7 +1484,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 }
 
 :root.landing-page .maker-tag {
-  --tk-logo-ground: var(--landing-cream);
+  --tk-logo-ground: #d9e9f5;
   position: fixed;
   right: auto;
   left: 22px;
@@ -1493,7 +1493,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   display: flex;
   flex-direction: row-reverse;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   width: 56px;
   height: 56px;
   margin: 0;
@@ -1502,7 +1502,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   border: 2px solid var(--landing-sky);
   border-radius: 2px;
   clip-path: polygon(0 9px, 9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
-  background: var(--landing-cream);
+  background: #d9e9f5;
   color: var(--landing-ink);
   cursor: pointer;
   transition: width .24s ease, column-gap .24s ease, background-color .2s ease;
@@ -1511,8 +1511,8 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .maker-tag:hover,
 :root.landing-page .maker-tag:focus-visible,
 :root.landing-page .maker-tag[aria-expanded="true"] {
-  width: 170px;
-  column-gap: 7px;
+  width: 212px;
+  column-gap: 10px;
   background: #d9e9f5;
 }
 
@@ -1520,8 +1520,9 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   display: flex;
   min-width: 0;
   max-width: 0;
-  align-items: baseline;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   overflow: hidden;
   opacity: 0;
   white-space: nowrap;
@@ -1531,16 +1532,16 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .maker-tag:hover .maker-tag-copy,
 :root.landing-page .maker-tag:focus-visible .maker-tag-copy,
 :root.landing-page .maker-tag[aria-expanded="true"] .maker-tag-copy {
-  max-width: 103px;
+  max-width: 118px;
   opacity: 1;
 }
 
 :root.landing-page .maker-tag-copy small {
-  font: 400 9px/1 "DM Mono", monospace;
+  font: 400 11px/1 "Consolas", "Cascadia Mono", "Lucida Console", monospace;
 }
 
 :root.landing-page .maker-tag-copy strong {
-  font: 500 15px/1 "DM Mono", monospace;
+  font: 400 19px/1 "Consolas", "Cascadia Mono", "Lucida Console", monospace;
 }
 
 :root.landing-page .maker-tag-mark {
@@ -1663,7 +1664,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 
   :root.landing-page .gate-footer {
     gap: 12px;
-    padding: 0 17px 0 82px;
+    padding: 0 17px 0 220px;
   }
 
   :root.landing-page .gate-footer > span:nth-child(2) {
@@ -1681,7 +1682,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   :root.landing-page .maker-tag:hover,
   :root.landing-page .maker-tag:focus-visible,
   :root.landing-page .maker-tag[aria-expanded="true"] {
-    width: 154px;
+    width: 196px;
   }
 
   :root.landing-page .maker-tag-mark {
