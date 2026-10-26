@@ -197,6 +197,8 @@ let currentMode = "network";
 let fieldDimension = "druzina";
 let selectedFieldTagIds = [];
 let fieldTagSearchTerm = "";
+let fieldTagSort = "name";
+let fieldTagOnlyUsed = false;
 let selectedPersonId = null;
 const displayOptions = { primary: true, secondary: true, tags: false, categories: true, titles: true };
 let editingId = null;
@@ -239,6 +241,9 @@ let colorRules = [];
 let graphColorMode = "group";
 let graphPeople = [];
 let graphTeams = [];
+let filterSuggestionItems = [];
+let filterSuggestionIndex = -1;
+let filterSuggestionInput = null;
 let activeFieldRegions = [];
 let activeFieldShapes = [];
 let hoveredOddilReachName = null;
@@ -276,6 +281,8 @@ function loadWorkspaceState() {
     if (["network", "field", "age"].includes(saved.mode)) currentMode = saved.mode;
     if (["oddil", "druzina", "role", "city", "category", "tags"].includes(saved.fieldDimension)) fieldDimension = saved.fieldDimension;
     if (Array.isArray(saved.selectedFieldTagIds)) selectedFieldTagIds = saved.selectedFieldTagIds.map(Number).filter(Number.isFinite);
+    if (["name", "usage"].includes(saved.fieldTagSort)) fieldTagSort = saved.fieldTagSort;
+    if (typeof saved.fieldTagOnlyUsed === "boolean") fieldTagOnlyUsed = saved.fieldTagOnlyUsed;
     if (["map", "edit", "sql"].includes(saved.section)) activeSection = saved.section;
     if (typeof saved.searchTerm === "string") searchTerm = saved.searchTerm;
     ["network", "field", "age"].forEach(mode => {
@@ -323,7 +330,7 @@ function captureGraphPositions(mode = currentMode) {
 function persistWorkspaceState(capture = false) {
   if (capture) captureGraphPositions();
   try {
-    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
+    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, fieldTagSort, fieldTagOnlyUsed, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
   } catch (_) {}
 }
 
@@ -334,7 +341,7 @@ function scheduleWorkspaceState() {
 
 function syncWorkspaceControls() {
   syncPrimaryNavigation();
-  document.querySelectorAll(".field-button").forEach(button => button.classList.toggle("active", button.dataset.field === fieldDimension));
+  syncFieldDimensionControls();
   const search = document.querySelector("#search");
   if (search) search.value = searchTerm;
 }
@@ -359,14 +366,19 @@ function applyFieldTagSearch(value = fieldTagSearchTerm) {
   const labels = [...menu.querySelectorAll(".field-tag-options label")];
   let visibleCount = 0;
   labels.forEach(label => {
-    const visible = !query || normalizeImportText(label.textContent).includes(query);
+    const visible = !query || normalizeImportText(label.querySelector("span")?.textContent || "").includes(query);
     label.hidden = !visible;
     if (visible) visibleCount += 1;
   });
   const empty = menu.querySelector("#field-tag-search-empty");
   if (empty) empty.hidden = visibleCount > 0 || tagsData.length === 0;
+  const visibleStatus = menu.querySelector("#field-tag-visible-status");
+  if (visibleStatus) visibleStatus.textContent = `${visibleCount} ${visibleCount === 1 ? "štítek" : visibleCount < 5 ? "štítky" : "štítků"}`;
+  const clearButton = menu.querySelector('[data-field-tag-action="clear-search"]');
+  if (clearButton) clearButton.hidden = !fieldTagSearchTerm;
   const allButton = menu.querySelector('[data-field-tag-action="all"]');
   const noneButton = menu.querySelector('[data-field-tag-action="none"]');
+  const invertButton = menu.querySelector('[data-field-tag-action="invert"]');
   if (allButton) {
     allButton.disabled = visibleCount === 0;
     allButton.textContent = query ? "Vybrat nalezené" : "Vybrat vše";
@@ -375,6 +387,7 @@ function applyFieldTagSearch(value = fieldTagSearchTerm) {
     noneButton.disabled = visibleCount === 0;
     noneButton.textContent = query ? "Zrušit nalezené" : "Zrušit vše";
   }
+  if (invertButton) invertButton.disabled = visibleCount === 0;
 }
 
 function renderFieldTagPicker() {
@@ -383,9 +396,23 @@ function renderFieldTagPicker() {
   const available = new Set(tagsData.map(tag => tag.id));
   selectedFieldTagIds = selectedFieldTagIds.filter(id => available.has(id));
   const selected = new Set(selectedFieldTagIds);
-  menu.innerHTML = `<label class="field-tag-search" for="field-tag-search-input">${icons.search}<input id="field-tag-search-input" type="search" value="${escapeHtml(fieldTagSearchTerm)}" placeholder="Hledat štítek…" autocomplete="off" spellcheck="false" aria-label="Hledat štítek"></label>
-    <div class="field-tag-actions"><button type="button" data-field-tag-action="all">Vybrat vše</button><button type="button" data-field-tag-action="none">Zrušit vše</button></div>
-    <div class="field-tag-options">${tagsData.map(tag => `<label><input type="checkbox" value="${tag.id}" ${selected.has(tag.id) ? "checked" : ""}><span>#${escapeHtml(tag.name)}</span></label>`).join("") || '<div class="empty-line">Žádné štítky.</div>'}<div class="empty-line" id="field-tag-search-empty" role="status" hidden>Žádné odpovídající štítky.</div></div>`;
+  const usage = new Map();
+  people.forEach(person => (person.tagsArray || []).forEach(tag => {
+    const key = normalizedValue(tag);
+    usage.set(key, (usage.get(key) || 0) + 1);
+  }));
+  const displayedTags = tagsData
+    .map(tag => ({...tag, usage: usage.get(normalizedValue(tag.name)) || 0}))
+    .filter(tag => !fieldTagOnlyUsed || tag.usage > 0)
+    .sort((a, b) => fieldTagSort === "usage"
+      ? b.usage - a.usage || a.name.localeCompare(b.name, "cs", {sensitivity: "base"})
+      : a.name.localeCompare(b.name, "cs", {sensitivity: "base"}));
+  menu.innerHTML = `<div class="field-tag-menu-head"><div><span>Pole podle štítků</span><strong>Vyberte datové množiny</strong></div><b id="field-tag-selection-status">${selected.size} / ${tagsData.length}</b></div>
+    <label class="field-tag-search" for="field-tag-search-input">${icons.search}<input id="field-tag-search-input" type="search" value="${escapeHtml(fieldTagSearchTerm)}" placeholder="Hledat štítek…" autocomplete="off" spellcheck="false" aria-label="Hledat štítek"><button type="button" data-field-tag-action="clear-search" aria-label="Vymazat hledání"${fieldTagSearchTerm ? "" : " hidden"}>×</button></label>
+    <div class="field-tag-controls"><label><span>Řazení</span><select data-field-tag-sort aria-label="Řazení štítků"><option value="name"${fieldTagSort === "name" ? " selected" : ""}>A–Z</option><option value="usage"${fieldTagSort === "usage" ? " selected" : ""}>Nejpoužívanější</option></select></label><label class="field-tag-used-toggle"><input type="checkbox" data-field-tag-used-only${fieldTagOnlyUsed ? " checked" : ""}><span>Jen použité</span></label></div>
+    <div class="field-tag-actions"><button type="button" data-field-tag-action="all">Vybrat vše</button><button type="button" data-field-tag-action="none">Zrušit vše</button><button type="button" data-field-tag-action="invert">Obrátit výběr</button></div>
+    <div class="field-tag-list-head"><span id="field-tag-visible-status"></span><span>počet lidí</span></div>
+    <div class="field-tag-options">${displayedTags.map(tag => `<label><input type="checkbox" value="${tag.id}" ${selected.has(tag.id) ? "checked" : ""}><span>#${escapeHtml(tag.name)}</span><small>${tag.usage}</small></label>`).join("")}${tagsData.length ? '<div class="empty-line" id="field-tag-search-empty" role="status" hidden>Žádné odpovídající štítky.</div>' : '<div class="empty-line">Databáze neobsahuje žádné štítky.</div>'}</div>`;
   const count = document.querySelector("#field-tag-count");
   if (count) count.textContent = selected.size === tagsData.length ? `(${tagsData.length})` : `(${selected.size}/${tagsData.length})`;
   applyFieldTagSearch(fieldTagSearchTerm);
@@ -395,6 +422,8 @@ function renderFieldTagPicker() {
 function updateFieldTagPickerCount() {
   const count = document.querySelector("#field-tag-count");
   if (count) count.textContent = selectedFieldTagIds.length === tagsData.length ? `(${tagsData.length})` : `(${selectedFieldTagIds.length}/${tagsData.length})`;
+  const status = document.querySelector("#field-tag-selection-status");
+  if (status) status.textContent = `${selectedFieldTagIds.length} / ${tagsData.length}`;
 }
 
 function databaseGateStatus(message, state = "ready") {
@@ -538,7 +567,17 @@ function renderShell() {
         <div class="nav-label">Pohled</div>
         <nav class="nav-list" aria-label="Hlavní navigace">
           <button class="nav-button active" data-view-mode="network">${icons.structure}<span>Struktura</span></button>
-          <button class="nav-button" data-view-mode="field">${icons.field}<span>Field</span></button>
+          <div class="nav-field-group">
+            <button class="nav-button" data-view-mode="field">${icons.field}<span>Field</span></button>
+            <div class="field-subnav" aria-label="Kategorie pohledu Field">
+              <button type="button" class="field-subnav-button" data-field="oddil">Oddíly</button>
+              <button type="button" class="field-subnav-button" data-field="druzina">Družiny</button>
+              <button type="button" class="field-subnav-button" data-field="role">Role</button>
+              <button type="button" class="field-subnav-button" data-field="city">Města</button>
+              <button type="button" class="field-subnav-button" data-field="category">Kategorie</button>
+              <button type="button" class="field-subnav-button" data-field="tags">Štítky</button>
+            </div>
+          </div>
           <button class="nav-button" data-view-mode="age">${icons.age}<span>Věk</span></button>
           <button class="nav-button" data-section="sql">${icons.sql}<span>SQL laboratoř</span></button>
         </nav>
@@ -949,7 +988,7 @@ function fieldValue(person) {
 
 function fieldColor(name, index) {
   const fieldKey = ["oddil", "druzina"].includes(fieldDimension) ? "unit" : fieldDimension;
-  const custom = colorRules.find(rule => rule.field === fieldKey && valueMatches(name, rule.value, "equals"));
+  const custom = colorRules.find(rule => rule.field === fieldKey && valueMatches(name, rule.value, rule.operator || "equals"));
   if (custom?.color) return custom.color;
   const category = categoriesData.find(item => item.name === name);
   return category?.color || ["#ef765f", "#6ba29b", "#d4ae72", "#8daec4", "#bbc85d", "#9b8fc2", "#c58caa"][index % 7];
@@ -2330,14 +2369,14 @@ const COLOR_MODES = [
   ["category", "Podle kategorie"],
   ["tag", "Podle štítku"],
   ["group", "Podle skupiny"],
-  ["filter", "Podle filtru"]
+  ["filter", "Podle atributu"]
 ];
 
 const COLOR_MODE_HINTS = {
   category: "Použije uloženou barvu kategorie každého člověka.",
   tag: "Použije stabilní barvu prvního štítku v abecedním pořadí.",
   group: "Použije barvu primární jednotky člověka.",
-  filter: "Použije seřazená pravidla níže; první shoda vyhrává."
+  filter: "Vyberte atribut, podmínku a barvu. První odpovídající pravidlo vyhrává."
 };
 
 function normalizedValue(value) {
@@ -2517,7 +2556,8 @@ function computeGraphSelection() {
 }
 
 function colorRuleMatchesPerson(person, rule) {
-  return String(rule.value ?? "").trim() && valueMatches(personAttribute(person, rule.field), rule.value, "equals");
+  return (rule.operator === "empty" || String(rule.value ?? "").trim())
+    && valueMatches(personAttribute(person, rule.field), rule.value, rule.operator || "equals");
 }
 
 function personGraphColor(person, useCategory = true) {
@@ -2547,7 +2587,7 @@ function selectedPersonColor(person) {
 }
 
 function teamGraphColor(team) {
-  return colorRules.find(rule => rule.field === "unit" && valueMatches(team.name, rule.value, "equals"))?.color || "";
+  return colorRules.find(rule => rule.field === "unit" && colorRuleMatchesPerson({unitNames: [team.name]}, rule))?.color || "";
 }
 
 function unitClusterColor(team) {
@@ -2577,7 +2617,7 @@ function updateGraphFilterMeta() {
     + (String(graphFilters.query || "").trim() ? 1 : 0)
     + (graphFilters.showOrphans ? 0 : 1)
     + (graphColorMode === "group" ? 0 : 1)
-    + (graphColorMode === "filter" ? colorRules.filter(rule => String(rule.value ?? "").trim()).length : 0)
+    + (graphColorMode === "filter" ? colorRules.filter(rule => rule.operator === "empty" || String(rule.value ?? "").trim()).length : 0)
     + Object.values(connectionFilters).filter(value => !value).length + hiddenRelationshipTypes.length
     + (displayOptions.tags ? 1 : 0) + (displayOptions.categories ? 0 : 1) + (displayOptions.titles ? 0 : 1);
   const badge = document.querySelector("#filter-count");
@@ -2611,9 +2651,178 @@ function selectOptions(options, selected) {
   return options.map(([value, label]) => `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`).join("");
 }
 
+const FILTER_QUERY_PREFIXES = {
+  name: "jméno", nickname: "přezdívka", role: "role", birth_date: "narození", age: "věk",
+  category: "kategorie", registration_category: "registrace", city: "město", email: "email",
+  tags: "štítek", unit: "jednotka", notes: "poznámka"
+};
+
+function filterAttributeValues(field) {
+  const values = [];
+  if (field === "category") values.push(...categoriesData.map(item => item.name));
+  if (field === "tags") values.push(...tagsData.map(item => item.name));
+  if (field === "unit") values.push(...teams.map(item => item.name));
+  people.forEach(person => {
+    const source = personAttribute(person, field);
+    values.push(...(Array.isArray(source) ? source : [source]));
+  });
+  const unique = new Map();
+  values.forEach(value => {
+    const text = String(value ?? "").trim();
+    const key = normalizedValue(text);
+    if (text && !unique.has(key)) unique.set(key, text);
+  });
+  const result = [...unique.values()];
+  return field === "age"
+    ? result.sort((a, b) => Number(a) - Number(b))
+    : result.sort((a, b) => a.localeCompare(b, "cs", {numeric: true, sensitivity: "base"}));
+}
+
+function filterQueryTokenRange(input) {
+  const text = input.value || "";
+  const cursor = input.selectionStart ?? text.length;
+  let start = 0;
+  let quoted = false;
+  for (let index = 0; index < cursor; index += 1) {
+    if (text[index] === '"') quoted = !quoted;
+    if (/\s/.test(text[index]) && !quoted) start = index + 1;
+  }
+  let end = cursor;
+  for (let index = cursor; index < text.length; index += 1) {
+    if (text[index] === '"') quoted = !quoted;
+    if (/\s/.test(text[index]) && !quoted) break;
+    end = index + 1;
+  }
+  return {start, end, raw: text.slice(start, cursor)};
+}
+
+function filterQueryValue(value) {
+  const text = String(value ?? "");
+  return /\s|[\[\]"]/u.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
+}
+
+function queryFilterSuggestions(input) {
+  const range = filterQueryTokenRange(input);
+  const negative = range.raw.startsWith("-");
+  const body = negative ? range.raw.slice(1) : range.raw;
+  const separator = body.indexOf(":");
+  const prefix = negative ? "-" : "";
+  const fields = FILTER_ATTRIBUTES.map(([field, label]) => ({field, label, prefix: FILTER_QUERY_PREFIXES[field] || field}));
+  const items = [];
+  if (separator < 0) {
+    const needle = normalizedFilterKey(body);
+    if (range.start > 0 && !negative && (!needle || "or".includes(needle))) {
+      items.push({label: "OR", meta: "Stačí jedna z možností", insert: "OR ", ...range});
+    }
+    fields.filter(item => !needle || normalizedFilterKey(`${item.prefix} ${item.label}`).includes(needle)).forEach(item => {
+      items.push({label: `${item.label}:`, meta: "Atribut", insert: `${prefix}${item.prefix}:`, ...range});
+    });
+    if (needle) fields.forEach(item => {
+      filterAttributeValues(item.field).forEach(value => {
+        if (items.length >= 40 || !normalizedFilterKey(value).includes(needle)) return;
+        items.push({label: value, meta: item.label, insert: `${prefix}${item.prefix}:${filterQueryValue(value)}`, ...range});
+      });
+    });
+    return items.slice(0, 40);
+  }
+  const enteredKey = body.slice(0, separator);
+  const field = QUERY_FIELD_ALIASES[normalizedFilterKey(enteredKey)];
+  if (!field) {
+    const needle = normalizedFilterKey(enteredKey);
+    return fields.filter(item => normalizedFilterKey(`${item.prefix} ${item.label}`).includes(needle)).map(item => ({
+      label: `${item.label}:`, meta: "Atribut", insert: `${prefix}${item.prefix}:`, ...range
+    }));
+  }
+  const descriptor = fields.find(item => item.field === field);
+  const typedValue = body.slice(separator + 1).replace(/^"/, "");
+  const comparison = field === "age" ? (typedValue.match(/^(>=|<=|>|<|=)/)?.[1] || "") : "";
+  const needle = normalizedFilterKey(typedValue.slice(comparison.length));
+  if (!comparison && (!needle || "null".includes(needle))) {
+    items.push({label: "null", meta: `${descriptor?.label || field} není vyplněno`, insert: `${prefix}${descriptor?.prefix || enteredKey}:null`, ...range});
+  }
+  filterAttributeValues(field).forEach(value => {
+    if (needle && !normalizedFilterKey(value).includes(needle)) return;
+    items.push({
+      label: value,
+      meta: descriptor?.label || field,
+      insert: `${prefix}${descriptor?.prefix || enteredKey}:${comparison}${filterQueryValue(value)}`,
+      ...range
+    });
+  });
+  if (field === "age" && !typedValue) {
+    [[">=", "alespoň"], ["<=", "nejvýše"], [">", "více než"], ["<", "méně než"]].forEach(([operator, label]) => {
+      items.unshift({label: `${operator}…`, meta: `Věk · ${label}`, insert: `${prefix}${descriptor.prefix}:${operator}`, ...range});
+    });
+  }
+  return items;
+}
+
+function valueFilterSuggestions(input, field) {
+  const needle = normalizedFilterKey(input.value);
+  const label = FILTER_ATTRIBUTES.find(([key]) => key === field)?.[1] || field;
+  return filterAttributeValues(field)
+    .filter(value => !needle || normalizedFilterKey(value).includes(needle))
+    .map(value => ({label: value, meta: label, insert: value}));
+}
+
+function hideFilterSuggestions() {
+  document.querySelectorAll("[data-filter-suggestion-list]").forEach(list => {
+    list.hidden = true;
+    list.innerHTML = "";
+  });
+  filterSuggestionInput?.setAttribute("aria-expanded", "false");
+  filterSuggestionItems = [];
+  filterSuggestionIndex = -1;
+  filterSuggestionInput = null;
+}
+
+function renderFilterSuggestions(input) {
+  const list = input.closest(".filter-query, .filter-value-wrap")?.querySelector("[data-filter-suggestion-list]");
+  if (!list) return;
+  document.querySelectorAll("[data-filter-suggestion-list]").forEach(other => { if (other !== list) other.hidden = true; });
+  let items = [];
+  if (input.matches("[data-filter-query]")) items = queryFilterSuggestions(input);
+  else if (input.matches("[data-filter-rule-value]")) items = valueFilterSuggestions(input, graphFilters.rules[+input.dataset.filterRuleValue]?.field);
+  else if (input.matches("[data-color-rule-value]")) items = valueFilterSuggestions(input, colorRules[+input.dataset.colorRuleValue]?.field);
+  filterSuggestionInput = input;
+  filterSuggestionItems = items;
+  filterSuggestionIndex = -1;
+  list.innerHTML = items.map((item, index) => `<button type="button" role="option" data-filter-suggestion="${index}"><span>${escapeHtml(item.label)}</span><small>${escapeHtml(item.meta)}</small></button>`).join("");
+  list.hidden = !items.length;
+  input.setAttribute("aria-expanded", String(Boolean(items.length)));
+}
+
+function setFilterSuggestionIndex(index) {
+  if (!filterSuggestionItems.length) return;
+  filterSuggestionIndex = (index + filterSuggestionItems.length) % filterSuggestionItems.length;
+  const list = filterSuggestionInput?.closest(".filter-query, .filter-value-wrap")?.querySelector("[data-filter-suggestion-list]");
+  list?.querySelectorAll("[data-filter-suggestion]").forEach((button, buttonIndex) => button.classList.toggle("is-active", buttonIndex === filterSuggestionIndex));
+  list?.querySelector(`[data-filter-suggestion="${filterSuggestionIndex}"]`)?.scrollIntoView({block: "nearest"});
+}
+
+function applyFilterSuggestion(index) {
+  const input = filterSuggestionInput;
+  const item = filterSuggestionItems[index];
+  if (!input || !item) return;
+  let cursor;
+  if (input.matches("[data-filter-query]")) {
+    input.value = `${input.value.slice(0, item.start)}${item.insert}${input.value.slice(item.end)}`;
+    cursor = item.start + item.insert.length;
+  } else {
+    input.value = item.insert;
+    cursor = input.value.length;
+  }
+  input.dispatchEvent(new Event("input", {bubbles: true}));
+  hideFilterSuggestions();
+  input.focus();
+  input.setSelectionRange?.(cursor, cursor);
+}
+
 function renderGraphFilterPanel() {
   const panel = document.querySelector("#filter-panel");
   if (!panel) return;
+  const previousScrollTop = panel.scrollTop;
+  hideFilterSuggestions();
   panel.innerHTML = `
     <div class="filter-head"><div><span class="eyebrow">Graf</span><strong>Filtry, vrstvy a barvy</strong></div><button class="text-button" type="button" data-filter-action="reset">Výchozí</button></div>
     <section class="filter-section">
@@ -2623,8 +2832,7 @@ function renderGraphFilterPanel() {
     </section>
     <section class="filter-section">
       <div class="filter-section-head"><strong>Filtrační dotaz</strong><span>jako v Obsidianu</span></div>
-      <label class="filter-query"><span class="filter-query-icon">${icons.search}</span><input data-filter-query value="${escapeHtml(graphFilters.query || "")}" placeholder='např. role:vedoucí -město:Praha'></label>
-      <p class="filter-query-help">Slova se kombinují jako „a“. Použijte <code>OR</code>, <code>-výraz</code>, přesnou frázi v uvozovkách nebo <code>štítek:</code>, <code>jednotka:</code>, <code>role:</code>, <code>město:</code>, <code>kategorie:</code> a <code>věk:&gt;=18</code>.</p>
+      <div class="filter-query"><span class="filter-query-icon">${icons.search}</span><input data-filter-query value="${escapeHtml(graphFilters.query || "")}" placeholder="Začněte psát atribut nebo hodnotu…" aria-label="Filtrační dotaz" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="filter-query-suggestions"><span class="filter-suggestion-hint">↓ návrhy</span><div class="filter-suggestion-list" id="filter-query-suggestions" data-filter-suggestion-list role="listbox" hidden></div></div>
       <label class="filter-checkbox"><input type="checkbox" data-filter-orphans${graphFilters.showOrphans ? " checked" : ""}><span>Zobrazit lidi bez spojení</span></label>
     </section>
     <section class="filter-section">
@@ -2648,7 +2856,7 @@ function renderGraphFilterPanel() {
         ${graphFilters.rules.length ? graphFilters.rules.map((rule, index) => `<div class="filter-rule">
           <select data-filter-rule-field="${index}">${selectOptions(FILTER_ATTRIBUTES, rule.field)}</select>
           <select data-filter-rule-operator="${index}">${selectOptions(FILTER_OPERATORS, rule.operator)}</select>
-          <input data-filter-rule-value="${index}" value="${escapeHtml(rule.value || "")}" placeholder="hodnota"${rule.operator === "empty" ? " disabled" : ""}>
+          <span class="filter-value-wrap"><input data-filter-rule-value="${index}" value="${escapeHtml(rule.value || "")}" placeholder="hodnota" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"${rule.operator === "empty" ? " disabled" : ""}><div class="filter-suggestion-list" data-filter-suggestion-list role="listbox" hidden></div></span>
           <button type="button" class="row-icon-button" data-filter-remove="${index}" aria-label="Odebrat filtr">×</button>
         </div>`).join("") : '<p class="filter-empty">Zatím se zobrazují lidé se všemi atributy.</p>'}
       </div>
@@ -2661,14 +2869,16 @@ function renderGraphFilterPanel() {
       ${graphColorMode === "filter" ? `<div class="color-rule-list">
         ${colorRules.length ? colorRules.map((rule, index) => `<div class="color-rule">
           <input type="color" value="${escapeHtml(rule.color || "#6ba29b")}" data-color-rule-color="${index}" aria-label="Barva skupiny">
-          <select data-color-rule-field="${index}">${selectOptions(FILTER_ATTRIBUTES.filter(([key]) => !["age", "email", "notes"].includes(key)), rule.field)}</select>
-          <input data-color-rule-value="${index}" value="${escapeHtml(rule.value || "")}" placeholder="přesná hodnota">
+          <select data-color-rule-field="${index}" aria-label="Atribut pro barvu">${selectOptions(FILTER_ATTRIBUTES, rule.field)}</select>
+          <select data-color-rule-operator="${index}" aria-label="Podmínka pro barvu">${selectOptions(FILTER_OPERATORS, rule.operator || "equals")}</select>
+          <span class="filter-value-wrap"><input data-color-rule-value="${index}" value="${escapeHtml(rule.value || "")}" placeholder="hodnota" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"${rule.operator === "empty" ? " disabled" : ""}><div class="filter-suggestion-list" data-filter-suggestion-list role="listbox" hidden></div></span>
           <span class="color-rule-order"><button type="button" data-color-move="${index}" data-direction="-1" aria-label="Posunout nahoru">↑</button><button type="button" data-color-move="${index}" data-direction="1" aria-label="Posunout dolů">↓</button></span>
           <button type="button" class="row-icon-button" data-color-remove="${index}" aria-label="Odebrat barvu">×</button>
         </div>`).join("") : '<p class="filter-empty">Přidejte pravidlo a obarvěte odpovídající lidi. Bez shody zůstanou neutrální.</p>'}
       </div>
-      <button class="filter-add-button" type="button" data-filter-action="add-color">+ Přidat barevný filtr</button>` : ""}
+      <button class="filter-add-button" type="button" data-filter-action="add-color">+ Přidat barevné pravidlo</button>` : ""}
     </section>`;
+  panel.scrollTop = previousScrollTop;
   updateGraphFilterMeta();
 }
 
@@ -4536,6 +4746,7 @@ function updateModeV2(mode, animate = true) {
   }
   svg.attr("data-mode", mode).attr("data-field-dimension", mode === "field" ? fieldDimension : null);
   syncPrimaryNavigation();
+  syncFieldDimensionControls();
   syncSectionHeader();
   document.querySelector("#field-toolbar").classList.toggle("visible", mode === "field");
   const mapHint = document.querySelector(".map-hint");
@@ -4980,6 +5191,17 @@ function syncPrimaryNavigation() {
   });
 }
 
+function syncFieldDimensionControls() {
+  document.querySelectorAll("[data-field]").forEach(button => {
+    const isSidebarButton = button.classList.contains("field-subnav-button");
+    const active = button.dataset.field === fieldDimension && (!isSidebarButton || (activeSection === "map" && currentMode === "field"));
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    if (isSidebarButton && active) button.setAttribute("aria-current", "page");
+    else if (isSidebarButton) button.removeAttribute("aria-current");
+  });
+}
+
 function syncSectionHeader() {
   const kicker = document.querySelector("#section-kicker");
   const title = document.querySelector("#section-title");
@@ -5001,6 +5223,7 @@ function showSection(section) {
   if (section !== "map" && section !== "sql") section = "map";
   activeSection = section;
   syncPrimaryNavigation();
+  syncFieldDimensionControls();
   const isMap = section === "map";
   document.querySelector("#map-view").style.display = isMap ? "block" : "none";
   document.querySelector("#edit-view").style.display = "none";
@@ -6267,11 +6490,14 @@ function syncExportMenu() {
     : resultTable ? "Exportuje právě zobrazený výsledek SQL dotazu." : "Nejdříve spusťte SQL dotaz, který vytvoří tabulku.";
 }
 
-function closeMapControlPanels() {
+function closeMapControlPanels(except = "") {
   ["filter", "export"].forEach(name => {
+    if (name === except) return;
     document.querySelector(`#${name}-panel`)?.classList.remove("open");
     document.querySelector(`#${name}-toggle`)?.setAttribute("aria-expanded", "false");
   });
+  if (except !== "tags") document.querySelector("#field-tag-picker")?.removeAttribute("open");
+  if (except !== "filter") hideFilterSuggestions();
 }
 
 function syncPrintMapHeader() {
@@ -6503,7 +6729,11 @@ function bindEvents() {
     applyAppSettings();
     showToast("Vzhled aplikace byl obnoven.");
   });
-  document.querySelector("#app-settings").addEventListener("click", event => event.stopPropagation());
+  const appSettingsPanel = document.querySelector("#app-settings");
+  appSettingsPanel.addEventListener("click", event => event.stopPropagation());
+  appSettingsPanel.addEventListener("toggle", () => {
+    if (appSettingsPanel.open) closeMapControlPanels();
+  });
   document.querySelectorAll(".nav-button").forEach(button => button.addEventListener("click", () => {
     if (button.dataset.section === "sql") return showSection("sql");
     showSection("map");
@@ -6517,56 +6747,90 @@ function bindEvents() {
     const panel = document.querySelector("#filter-panel");
     const open = !panel.classList.contains("open");
     closeMapControlPanels();
+    document.querySelector("#app-settings")?.removeAttribute("open");
     panel.classList.toggle("open", open);
     event.currentTarget.setAttribute("aria-expanded", String(open));
   });
-  document.querySelectorAll(".field-button").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll("[data-field]").forEach(button => button.addEventListener("click", () => {
     fieldDimension = button.dataset.field;
-    document.querySelectorAll(".field-button").forEach(item => item.classList.toggle("active", item === button));
+    showSection("map");
+    syncFieldDimensionControls();
     syncFieldTagPickerVisibility();
     updateModeV2("field");
   }));
   const fieldTagPicker = document.querySelector("#field-tag-picker");
   fieldTagPicker.addEventListener("toggle", () => {
-    if (fieldTagPicker.open) requestAnimationFrame(() => fieldTagPicker.querySelector("#field-tag-search-input")?.focus());
+    if (fieldTagPicker.open) {
+      closeMapControlPanels("tags");
+      document.querySelector("#app-settings")?.removeAttribute("open");
+      requestAnimationFrame(() => fieldTagPicker.querySelector("#field-tag-search-input")?.focus());
+    }
   });
   fieldTagPicker.addEventListener("click", event => {
     event.stopPropagation();
     const action = event.target.closest("[data-field-tag-action]")?.dataset.fieldTagAction;
     if (!action) return;
+    if (action === "clear-search") {
+      fieldTagSearchTerm = "";
+      const input = fieldTagPicker.querySelector("#field-tag-search-input");
+      if (input) input.value = "";
+      applyFieldTagSearch("");
+      input?.focus();
+      return;
+    }
     const selected = new Set(selectedFieldTagIds);
     const visibleInputs = [...fieldTagPicker.querySelectorAll('.field-tag-options label:not([hidden]) input[type="checkbox"]')];
     visibleInputs.forEach(input => {
       const id = +input.value;
       if (action === "all") selected.add(id);
-      else selected.delete(id);
-      input.checked = action === "all";
+      else if (action === "none") selected.delete(id);
+      else if (selected.has(id)) selected.delete(id);
+      else selected.add(id);
+      input.checked = selected.has(id);
     });
     selectedFieldTagIds = [...selected];
     updateFieldTagPickerCount();
     updateModeV2("field");
+    scheduleWorkspaceState();
   });
   fieldTagPicker.addEventListener("input", event => {
     if (event.target.id === "field-tag-search-input") applyFieldTagSearch(event.target.value);
   });
   fieldTagPicker.addEventListener("keydown", event => {
-    if (event.target.id !== "field-tag-search-input" || event.key !== "Escape" || !fieldTagSearchTerm) return;
+    if (event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
-    event.target.value = "";
-    applyFieldTagSearch("");
+    fieldTagPicker.open = false;
   });
   fieldTagPicker.addEventListener("change", event => {
-    if (!event.target.matches('input[type="checkbox"]')) return;
-    selectedFieldTagIds = [...fieldTagPicker.querySelectorAll('input[type="checkbox"]:checked')].map(input => +input.value);
+    if (event.target.matches("[data-field-tag-sort]")) {
+      fieldTagSort = event.target.value;
+      renderFieldTagPicker();
+      scheduleWorkspaceState();
+      return;
+    }
+    if (event.target.matches("[data-field-tag-used-only]")) {
+      fieldTagOnlyUsed = event.target.checked;
+      renderFieldTagPicker();
+      scheduleWorkspaceState();
+      return;
+    }
+    if (!event.target.matches('.field-tag-options input[type="checkbox"]')) return;
+    const selected = new Set(selectedFieldTagIds);
+    const id = +event.target.value;
+    if (event.target.checked) selected.add(id);
+    else selected.delete(id);
+    selectedFieldTagIds = [...selected];
     updateFieldTagPickerCount();
     updateModeV2("field");
+    scheduleWorkspaceState();
   });
   document.querySelector("#export-toggle")?.addEventListener("click", event => {
     event.stopPropagation();
     const panel = document.querySelector("#export-panel");
     const open = !panel.classList.contains("open");
     closeMapControlPanels();
+    document.querySelector("#app-settings")?.removeAttribute("open");
     syncExportMenu();
     panel.classList.toggle("open", open);
     event.currentTarget.setAttribute("aria-expanded", String(open));
@@ -6581,6 +6845,11 @@ function bindEvents() {
   const filterPanel = document.querySelector("#filter-panel");
   filterPanel.addEventListener("click", event => {
     event.stopPropagation();
+    const suggestion = event.target.closest("[data-filter-suggestion]");
+    if (suggestion) {
+      applyFilterSuggestion(+suggestion.dataset.filterSuggestion);
+      return;
+    }
     const action = event.target.closest("[data-filter-action]")?.dataset.filterAction;
     if (action === "add-rule") {
       graphFilters.rules.push({field: "name", operator: "contains", value: ""});
@@ -6588,7 +6857,7 @@ function bindEvents() {
       return;
     }
     if (action === "add-color") {
-      colorRules.push({field: "category", value: "", color: "#6ba29b"});
+      colorRules.push({field: "category", operator: "equals", value: "", color: "#6ba29b"});
       renderGraphFilterPanel();
       return;
     }
@@ -6652,11 +6921,26 @@ function bindEvents() {
       const type = event.target.dataset.relationshipType;
       hiddenRelationshipTypes = event.target.checked ? hiddenRelationshipTypes.filter(item => item !== type) : [...new Set([...hiddenRelationshipTypes, type])];
     }
-    else if (event.target.matches("[data-filter-rule-field]")) graphFilters.rules[+event.target.dataset.filterRuleField].field = event.target.value;
+    else if (event.target.matches("[data-filter-rule-field]")) {
+      graphFilters.rules[+event.target.dataset.filterRuleField].field = event.target.value;
+      hideFilterSuggestions();
+    }
     else if (event.target.matches("[data-filter-rule-operator]")) {
-      graphFilters.rules[+event.target.dataset.filterRuleOperator].operator = event.target.value;
-      renderGraphFilterPanel();
-    } else if (event.target.matches("[data-color-rule-field]")) colorRules[+event.target.dataset.colorRuleField].field = event.target.value;
+      const rule = graphFilters.rules[+event.target.dataset.filterRuleOperator];
+      rule.operator = event.target.value;
+      const input = event.target.closest(".filter-rule")?.querySelector("[data-filter-rule-value]");
+      if (input) input.disabled = rule.operator === "empty";
+      hideFilterSuggestions();
+    } else if (event.target.matches("[data-color-rule-field]")) {
+      colorRules[+event.target.dataset.colorRuleField].field = event.target.value;
+      hideFilterSuggestions();
+    } else if (event.target.matches("[data-color-rule-operator]")) {
+      const rule = colorRules[+event.target.dataset.colorRuleOperator];
+      rule.operator = event.target.value;
+      const input = event.target.closest(".color-rule")?.querySelector("[data-color-rule-value]");
+      if (input) input.disabled = rule.operator === "empty";
+      hideFilterSuggestions();
+    }
     else return;
     scheduleGraphFilterUpdate();
   });
@@ -6666,7 +6950,34 @@ function bindEvents() {
     else if (event.target.matches("[data-color-rule-value]")) colorRules[+event.target.dataset.colorRuleValue].value = event.target.value;
     else if (event.target.matches("[data-color-rule-color]")) colorRules[+event.target.dataset.colorRuleColor].color = event.target.value;
     else return;
+    if (event.target.matches("[data-filter-query], [data-filter-rule-value], [data-color-rule-value]")) renderFilterSuggestions(event.target);
     scheduleGraphFilterUpdate();
+  });
+  filterPanel.addEventListener("focusin", event => {
+    if (event.target.matches("[data-filter-query], [data-filter-rule-value], [data-color-rule-value]") && !event.target.disabled) renderFilterSuggestions(event.target);
+  });
+  filterPanel.addEventListener("focusout", event => {
+    if (!event.target.matches("[data-filter-query], [data-filter-rule-value], [data-color-rule-value]")) return;
+    setTimeout(() => {
+      if (!filterPanel.contains(document.activeElement) || !document.activeElement?.closest("[data-filter-suggestion-list]")) hideFilterSuggestions();
+    }, 0);
+  });
+  filterPanel.addEventListener("keydown", event => {
+    if (!event.target.matches("[data-filter-query], [data-filter-rule-value], [data-color-rule-value]")) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!filterSuggestionItems.length) renderFilterSuggestions(event.target);
+      const nextIndex = filterSuggestionIndex < 0
+        ? (event.key === "ArrowDown" ? 0 : filterSuggestionItems.length - 1)
+        : filterSuggestionIndex + (event.key === "ArrowDown" ? 1 : -1);
+      setFilterSuggestionIndex(nextIndex);
+    } else if (event.key === "Enter" && filterSuggestionIndex >= 0) {
+      event.preventDefault();
+      applyFilterSuggestion(filterSuggestionIndex);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      hideFilterSuggestions();
+    }
   });
   const editDashboard = document.querySelector("#edit-dashboard");
   editDashboard.addEventListener("submit", handleEditorSubmit);
@@ -6829,10 +7140,7 @@ function bindEvents() {
     hideUnitActionPopover();
     closeExpandedPersonInfo();
     if (!event.target.closest?.(".search-wrap")) hideMapSearchSuggestions();
-    document.querySelector("#filter-panel")?.classList.remove("open");
-    document.querySelector("#filter-toggle")?.setAttribute("aria-expanded", "false");
-    document.querySelector("#export-panel")?.classList.remove("open");
-    document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
+    closeMapControlPanels();
     if (!event.target.closest?.("#app-settings")) document.querySelector("#app-settings")?.removeAttribute("open");
   });
   document.addEventListener("keydown", e => {
