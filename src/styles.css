@@ -1202,6 +1202,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 .nav-button:hover { background: var(--surface-hover); }
 .nav-button.active { background: #3978b8; color: #fff; box-shadow: inset 5px 0 #f99d1c; }
 .nav-button span:last-child { font-family: "Open Sans", sans-serif; font-weight: 700; }
+.nav-field-group:has(.nav-button.active) .field-subnav-toggle { background: #3978b8; color: #fff; }
 .field-subnav-button { border-radius: 2px; font-family: "Open Sans", sans-serif; font-weight: 600; }
 .field-subnav-button.active { background: color-mix(in srgb, #3978b8 14%, transparent); color: var(--ink); box-shadow: inset 3px 0 #f99d1c; }
 .db-card { border: 1px solid var(--line); border-radius: 2px; background: var(--paper-deep); color: var(--ink); }
