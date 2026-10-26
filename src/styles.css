@@ -232,9 +232,17 @@ a { color: var(--focus); text-decoration-thickness: 1px; text-underline-offset: 
 .nav-button.active { background: var(--ink); color: var(--white); }
 .nav-icon { width: 17px; height: 17px; opacity: .82; }
 .nav-button span:last-child { font-size: 13px; font-weight: 600; }
-.nav-field-group { display: grid; gap: 2px; }
-.field-subnav { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px; margin: 0 5px 5px 31px; padding: 3px 0 3px 9px; border-left: 1px solid var(--line); }
-.field-subnav-button { min-width: 0; min-height: 27px; padding: 5px 6px; overflow: hidden; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.nav-field-group { display: grid; }
+.nav-field-main { display: grid; grid-template-columns: minmax(0,1fr) 30px; align-items: stretch; }
+.nav-field-main .nav-button { min-width: 0; }
+.field-subnav-toggle { position: relative; width: 30px; padding: 0; border: 0; border-radius: 0 7px 7px 0; background: transparent; color: var(--muted); cursor: pointer; }
+.field-subnav-toggle::before { content: ""; position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translate(-65%, -50%) rotate(-45deg); transition: transform .18s; }
+.field-subnav-toggle:hover { background: var(--surface-hover); color: var(--ink); }
+.nav-field-group.expanded .field-subnav-toggle::before { transform: translate(-50%, -65%) rotate(45deg); }
+.nav-field-group:has(.nav-button.active) .field-subnav-toggle { background: var(--ink); color: var(--white); }
+.field-subnav { display: grid; grid-template-columns: 1fr; gap: 1px; max-height: 0; margin: 0 5px 0 31px; padding: 0 0 0 9px; overflow: hidden; border-left: 1px solid transparent; opacity: 0; pointer-events: none; transition: max-height .2s ease, margin .2s ease, padding .2s ease, opacity .15s ease, border-color .2s; }
+.nav-field-group.expanded .field-subnav { max-height: 210px; margin-bottom: 5px; padding-top: 4px; padding-bottom: 3px; border-left-color: var(--line); opacity: 1; pointer-events: auto; }
+.field-subnav-button { min-width: 0; min-height: 28px; padding: 6px 9px; overflow: hidden; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .field-subnav-button:hover { background: var(--surface-hover); color: var(--ink); }
 .field-subnav-button.active { background: color-mix(in srgb, var(--focus) 15%, transparent); color: var(--focus); font-weight: 700; }
 
@@ -885,7 +893,8 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   .sidebar { padding: 25px 12px 18px; }
   .brand { justify-content: center; margin-left: 0; margin-right: 0; }
   .brand-copy, .nav-label, .nav-button span:last-child, .app-settings > summary span, .db-card, .build-note { display: none; }
-  .field-subnav { display: none; }
+  .field-subnav, .field-subnav-toggle { display: none; }
+  .nav-field-main { display: block; }
   .nav-button { justify-content: center; }
   .app-settings > summary { justify-content: center; padding-inline: 0; }
   .app-settings-panel { position: fixed; left: 90px; bottom: 18px; width: 220px; }
@@ -920,7 +929,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   .sidebar { grid-row: 2; flex-direction: row; align-items: center; padding: 8px 13px; border-top: 1px solid var(--line); border-right: 0; }
   .brand, .sidebar-spacer { display: none; }
   .nav-list { grid-template-columns: repeat(4, 1fr); width: 100%; }
-  .nav-field-group { display: contents; }
+  .nav-field-group, .nav-field-main { display: contents; }
   .nav-button span:last-child { display: inline; }
   .nav-button[data-section="sql"] { margin-top: 0; }
   .app-settings { flex: 0 0 42px; margin: 0 0 0 5px; }

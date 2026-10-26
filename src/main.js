@@ -199,6 +199,7 @@ let selectedFieldTagIds = [];
 let fieldTagSearchTerm = "";
 let fieldTagSort = "name";
 let fieldTagOnlyUsed = false;
+let fieldSidebarExpanded = false;
 let selectedPersonId = null;
 const displayOptions = { primary: true, secondary: true, tags: false, categories: true, titles: true };
 let editingId = null;
@@ -283,6 +284,7 @@ function loadWorkspaceState() {
     if (Array.isArray(saved.selectedFieldTagIds)) selectedFieldTagIds = saved.selectedFieldTagIds.map(Number).filter(Number.isFinite);
     if (["name", "usage"].includes(saved.fieldTagSort)) fieldTagSort = saved.fieldTagSort;
     if (typeof saved.fieldTagOnlyUsed === "boolean") fieldTagOnlyUsed = saved.fieldTagOnlyUsed;
+    if (typeof saved.fieldSidebarExpanded === "boolean") fieldSidebarExpanded = saved.fieldSidebarExpanded;
     if (["map", "edit", "sql"].includes(saved.section)) activeSection = saved.section;
     if (typeof saved.searchTerm === "string") searchTerm = saved.searchTerm;
     ["network", "field", "age"].forEach(mode => {
@@ -330,7 +332,7 @@ function captureGraphPositions(mode = currentMode) {
 function persistWorkspaceState(capture = false) {
   if (capture) captureGraphPositions();
   try {
-    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, fieldTagSort, fieldTagOnlyUsed, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
+    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, fieldTagSort, fieldTagOnlyUsed, fieldSidebarExpanded, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
   } catch (_) {}
 }
 
@@ -342,6 +344,7 @@ function scheduleWorkspaceState() {
 function syncWorkspaceControls() {
   syncPrimaryNavigation();
   syncFieldDimensionControls();
+  syncFieldSidebarExpansion();
   const search = document.querySelector("#search");
   if (search) search.value = searchTerm;
 }
@@ -567,8 +570,11 @@ function renderShell() {
         <div class="nav-label">Pohled</div>
         <nav class="nav-list" aria-label="Hlavní navigace">
           <button class="nav-button active" data-view-mode="network">${icons.structure}<span>Struktura</span></button>
-          <div class="nav-field-group">
-            <button class="nav-button" data-view-mode="field">${icons.field}<span>Field</span></button>
+          <div class="nav-field-group${fieldSidebarExpanded ? " expanded" : ""}" id="nav-field-group">
+            <div class="nav-field-main">
+              <button class="nav-button" data-view-mode="field">${icons.field}<span>Field</span></button>
+              <button class="field-subnav-toggle" id="field-subnav-toggle" type="button" aria-label="Rozbalit kategorie Field" aria-expanded="${fieldSidebarExpanded}"></button>
+            </div>
             <div class="field-subnav" aria-label="Kategorie pohledu Field">
               <button type="button" class="field-subnav-button" data-field="oddil">Oddíly</button>
               <button type="button" class="field-subnav-button" data-field="druzina">Družiny</button>
@@ -5202,6 +5208,15 @@ function syncFieldDimensionControls() {
   });
 }
 
+function syncFieldSidebarExpansion() {
+  const group = document.querySelector("#nav-field-group");
+  const toggle = document.querySelector("#field-subnav-toggle");
+  if (!group || !toggle) return;
+  group.classList.toggle("expanded", fieldSidebarExpanded);
+  toggle.setAttribute("aria-expanded", String(fieldSidebarExpanded));
+  toggle.setAttribute("aria-label", fieldSidebarExpanded ? "Sbalit kategorie Field" : "Rozbalit kategorie Field");
+}
+
 function syncSectionHeader() {
   const kicker = document.querySelector("#section-kicker");
   const title = document.querySelector("#section-title");
@@ -6736,11 +6751,22 @@ function bindEvents() {
   });
   document.querySelectorAll(".nav-button").forEach(button => button.addEventListener("click", () => {
     if (button.dataset.section === "sql") return showSection("sql");
+    if (button.dataset.viewMode === "field" && !fieldSidebarExpanded) {
+      fieldSidebarExpanded = true;
+      syncFieldSidebarExpansion();
+      scheduleWorkspaceState();
+    }
     showSection("map");
     updateModeV2(button.dataset.viewMode);
     clearTimeout(graphFitTimer);
     graphFitTimer = setTimeout(() => fitMapToStructure(true), 700);
   }));
+  document.querySelector("#field-subnav-toggle")?.addEventListener("click", event => {
+    event.stopPropagation();
+    fieldSidebarExpanded = !fieldSidebarExpanded;
+    syncFieldSidebarExpansion();
+    scheduleWorkspaceState();
+  });
   document.querySelector("#fit-map").addEventListener("click", () => fitMapToStructure(true));
   document.querySelector("#filter-toggle").addEventListener("click", event => {
     event.stopPropagation();
