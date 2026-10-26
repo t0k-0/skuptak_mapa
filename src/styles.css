@@ -487,6 +487,43 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 .unit-action-popover .primary-button { width: 100%; min-height: 38px; justify-content: center; }
 .unit-popover-close { position: absolute; top: 7px; right: 7px; display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; font-size: 20px; }
 .unit-popover-close:hover { background: var(--surface-hover); color: var(--ink); }
+.person-info-card {
+  position: absolute; z-index: 30; display: flex; width: min(430px, calc(100% - 24px)); max-height: calc(100% - 24px);
+  flex-direction: column; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px;
+  background: var(--glass-strong); color: var(--ink); box-shadow: 0 18px 48px color-mix(in srgb, var(--ink) 26%, transparent);
+  backdrop-filter: blur(18px);
+}
+.person-info-card[hidden] { display: none; }
+.person-info-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; min-height: 66px; gap: 15px; padding: 12px 12px 12px 17px; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; user-select: none; }
+.person-info-card.is-dragging .person-info-header { cursor: grabbing; }
+.person-info-header > div:first-child { min-width: 0; }
+.person-info-header span { display: block; margin-bottom: 3px; color: var(--muted); font: 9px/1.2 "DM Mono", monospace; letter-spacing: .12em; text-transform: uppercase; }
+.person-info-header strong { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: italic 700 21px/1.12 "TheMix", "Open Sans", sans-serif; white-space: nowrap; }
+.person-info-actions { display: flex; flex: 0 0 auto; gap: 4px; }
+.person-info-actions button { display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer; font: 24px/1 "Open Sans", sans-serif; }
+.person-info-actions button:hover, .person-info-actions button:focus-visible { border-color: var(--line-strong); background: var(--surface-hover); color: var(--ink); }
+.person-info-actions button.copied { border-color: var(--teal); color: var(--teal); }
+.person-info-actions svg { width: 18px; height: 18px; }
+.person-info-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 5px 17px 17px; scrollbar-gutter: stable; }
+.person-info-section { padding: 13px 0 3px; border-bottom: 1px solid var(--line); }
+.person-info-section h3, .person-info-extra > span { margin: 0 0 9px; color: var(--muted); font: 9px/1.2 "DM Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.person-info-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 18px; padding-bottom: 11px; }
+.person-info-fact { min-width: 0; }
+.person-info-fact > span { display: block; margin-bottom: 3px; color: var(--muted); font: 9px/1.25 "Open Sans", sans-serif; }
+.person-info-fact b, .person-info-fact a { display: block; overflow-wrap: anywhere; color: var(--ink); font: 600 13px/1.35 "Open Sans", sans-serif; text-decoration: none; }
+.person-info-fact.is-email > span, .person-info-fact.is-email a { color: var(--teal); }
+.person-info-fact a:hover, .person-info-fact a:focus-visible { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.person-info-extra { padding-top: 14px; }
+.person-info-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.person-info-tags i { padding: 4px 6px; border-radius: 3px; background: var(--paper-deep); color: var(--ink); font: normal 10px/1.2 "DM Mono", monospace; }
+.person-info-overflow { display: none; }
+.person-info-extra[data-expanded="true"] .person-info-overflow { display: inline-block; }
+.person-info-note p { margin: 0; color: var(--ink); font: 12px/1.55 "Open Sans", sans-serif; white-space: pre-wrap; }
+.person-info-note-full { display: none; }
+.person-info-note[data-expanded="true"] .person-info-note-preview { display: none; }
+.person-info-note[data-expanded="true"] .person-info-note-full { display: block; }
+.person-info-extra button { margin-top: 9px; padding: 0; border: 0; background: transparent; color: var(--teal); cursor: pointer; font: 700 10px/1.3 "Open Sans", sans-serif; }
+.person-info-extra button:hover, .person-info-extra button:focus-visible { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .age-axis path, .age-axis line { stroke: var(--line-strong); }
 .age-axis text { fill: var(--muted); font: 12px "DM Mono", monospace; }
 .age-unknown-label { fill: var(--muted); font: 11px "DM Mono", monospace; }
@@ -525,10 +562,12 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 .person-unit-ring { fill: color-mix(in srgb, var(--cluster-color) 13%, transparent); stroke: var(--cluster-color); stroke-width: 1.7; opacity: 0; pointer-events: none; }
 #map[data-mode="network"] .person-unit-ring { opacity: .82; }
 .person-dot { fill: var(--node-color); stroke: var(--ink); stroke-width: 2; opacity: 0; transition: r .2s; }
-.person-graph-label { fill: var(--ink); stroke: var(--label-halo); stroke-width: 5px; paint-order: stroke; font: italic 600 14px "SkautBold", "Open Sans", sans-serif; pointer-events: none; opacity: 0; }
-.person-node:hover .person-graph-label { opacity: 1 !important; }
+.person-graph-label { fill: var(--ink); stroke: var(--label-halo); stroke-width: 7px; stroke-linejoin: round; paint-order: stroke; font: italic 650 14px "SkautBold", "Open Sans", sans-serif; pointer-events: none; opacity: 0; }
+.person-node:hover .person-graph-label { opacity: 1 !important; filter: drop-shadow(0 2px 1px color-mix(in srgb, var(--label-halo) 92%, transparent)); }
 .person-node:hover .person-dot { r: 9; }
-.person-node.selected .person-dot { r: 10; stroke: var(--ink); stroke-width: 3; }
+.person-node.selected .person-dot { r: 10; stroke: var(--label-halo); stroke-width: 4; filter: drop-shadow(0 0 4px var(--ink)); }
+.person-node.selected .person-unit-ring { opacity: 1 !important; r: 15px; fill: none; stroke: var(--ink); stroke-width: 2.5; }
+.person-node.selected .node-card { border-color: var(--ink); box-shadow: 0 0 0 2px var(--label-halo), 0 0 0 4px var(--ink), var(--shadow); }
 #map[data-mode="field"][data-field-dimension="oddil"] .person-node:hover .person-dot { r: 7; }
 #map[data-mode="field"][data-field-dimension="oddil"] .person-node.selected .person-dot { r: 8; }
 .person-tags-label { fill: var(--muted); font: 10px "DM Mono", monospace; pointer-events: none; opacity: 0; }
@@ -1163,6 +1202,10 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 .app-shell .person-node.expanded .node-name { font-size: calc(18px + var(--app-text-offset, 0px)); }
 .app-shell .node-facts { font-size: calc(10px + var(--app-text-offset, 0px)); }
 .app-shell .node-facts b, .app-shell .node-action-link { font-size: calc(13px + var(--app-text-offset, 0px)); }
+.app-shell .person-info-header strong { font-size: calc(21px + var(--app-text-offset, 0px)); }
+.app-shell .person-info-section h3, .app-shell .person-info-extra > span, .app-shell .person-info-fact > span { font-size: calc(9px + var(--app-text-offset, 0px)); }
+.app-shell .person-info-fact b, .app-shell .person-info-fact a { font-size: calc(13px + var(--app-text-offset, 0px)); }
+.app-shell .person-info-note p { font-size: calc(12px + var(--app-text-offset, 0px)); }
 .app-shell .panel-head h2 { font-size: calc(22px + var(--app-text-offset, 0px)); }
 .app-shell .sql-builder > summary b { font-size: calc(15px + var(--app-text-offset, 0px)); }
 .app-shell .sql-builder > summary small, .app-shell .sql-builder-grid label > span { font-size: calc(8px + var(--app-text-offset, 0px)); }

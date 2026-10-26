@@ -255,6 +255,7 @@ const icons = {
   settings: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>',
   filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16l-6.2 7.1v5.2l-3.6 1.8v-7z"/></svg>',
   export: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 15v5h14v-5"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
   themeSystem: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
   themeLight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>',
   themeDark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.5 15.4A8.7 8.7 0 0 1 8.6 3.5 8.8 8.8 0 1 0 20.5 15.4Z"/></svg>'
@@ -576,6 +577,7 @@ function renderShell() {
           <svg id="map" role="img" aria-label="Interaktivní mapa členů týmu"></svg>
           <div class="field-section-popover" id="field-section-popover" hidden></div>
           <div class="unit-action-popover" id="unit-action-popover" role="dialog" aria-label="Možnosti jednotky" hidden></div>
+          <aside class="person-info-card" id="person-info-card" role="dialog" aria-label="Informace o osobě" hidden></aside>
           <div class="map-hint">Přetáhnout · kliknout pro detail · filtry mění zobrazení mapy</div>
         </section>
         <section class="view edit-view" id="edit-view">
@@ -3888,6 +3890,209 @@ function showUnitActionPopover(event, team) {
   popover.style.top = `${Math.max(82, Math.min(bounds.height - popover.offsetHeight - 12, wantedTop))}px`;
 }
 
+function personInformationSections(person) {
+  const clean = value => value == null ? "" : String(value).trim();
+  const unitNames = [...new Set((person.unitNames?.length ? person.unitNames : clean(person.jednotky).split(" · "))
+    .map(clean)
+    .filter(Boolean))];
+  const relatedPeople = [...new Set(relationships
+    .filter(relation => relation.source === person.id || relation.target === person.id)
+    .map(relation => {
+      const otherId = relation.source === person.id ? relation.target : relation.source;
+      const other = people.find(candidate => candidate.id === otherId);
+      return other ? `${personName(other)}${clean(relation.type) ? ` (${clean(relation.type)})` : ""}` : "";
+    })
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "cs"));
+  const sections = [
+    {
+      title: "Základní informace",
+      items: [
+        ["Jméno", personName(person)],
+        ["Přezdívka", person.nickname],
+        ["Role", person.role]
+      ]
+    },
+    {
+      title: "Osobní údaje",
+      items: [
+        ["Datum narození", person.birth_date ? birthDateLabel(person.birth_date) : ""],
+        ["Věk", person.age == null || person.age === "" ? "" : ageLabel(person.age)],
+        ["Kategorie", person.category],
+        ["Registrační kategorie", person.registration_category],
+        ["Město", person.city]
+      ]
+    },
+    {
+      title: "Zařazení",
+      items: [
+        ["Primární jednotka", person.org_team],
+        ["Všechny jednotky", unitNames.join(" · ")],
+        ["Oddíly", person.oddily],
+        ["Tým / skupina", person.team && person.team !== person.org_team ? person.team : ""]
+      ]
+    },
+    {
+      title: "Kontakt",
+      items: [["E-mail", person.email, "email"]]
+    },
+    {
+      title: "Vztahy",
+      items: [["Propojení s lidmi", relatedPeople.join(" · ")]]
+    }
+  ];
+
+  const knownKeys = new Set([
+    "id", "name", "nickname", "role", "age", "birth_date", "category_id", "category", "registration_category",
+    "team", "city", "email", "notes", "org_team_id", "org_team", "color", "tags", "tagsArray", "unitIds",
+    "unitNames", "jednotky", "oddilIds", "oddilNames", "oddily", "nodeType", "uid", "index", "x", "y", "vx",
+    "vy", "fx", "fy", "expanded", "labelWidth"
+  ]);
+  const extraItems = Object.entries(person)
+    .filter(([key, value]) => !knownKeys.has(key) && !key.startsWith("_") && ["string", "number", "boolean"].includes(typeof value) && clean(value))
+    .map(([key, value]) => [key.replaceAll("_", " ").replace(/^./, letter => letter.toLocaleUpperCase("cs")), value]);
+  if (extraItems.length) sections.push({title: "Další údaje", items: extraItems});
+
+  return sections
+    .map(section => ({...section, items: section.items.filter(([, value]) => clean(value))}))
+    .filter(section => section.items.length);
+}
+
+function personClipboardText(person) {
+  const blocks = personInformationSections(person).map(section => [
+    section.title.toLocaleUpperCase("cs"),
+    ...section.items.map(([label, value]) => `${label}: ${String(value).trim()}`)
+  ].join("\n"));
+  if (person.tagsArray?.length) blocks.push(`ŠTÍTKY\n${person.tagsArray.map(tag => `#${tag}`).join(", ")}`);
+  if (String(person.notes || "").trim()) blocks.push(`POZNÁMKA\n${String(person.notes).trim()}`);
+  return blocks.join("\n\n");
+}
+
+function personInfoFactHtml(label, value, type) {
+  const content = type === "email"
+    ? `<a href="${escapeHtml(`mailto:${String(value).trim()}`)}">${escapeHtml(value)}</a>`
+    : `<b>${escapeHtml(value)}</b>`;
+  return `<div class="person-info-fact${type === "email" ? " is-email" : ""}"><span>${escapeHtml(label)}</span>${content}</div>`;
+}
+
+function collapsiblePersonInfoHtml(person) {
+  const tags = person.tagsArray || [];
+  const notes = String(person.notes || "").trim();
+  const tagLimit = 7;
+  const noteLimit = 190;
+  const tagsNeedMore = tags.length > tagLimit;
+  const noteNeedsMore = notes.length > noteLimit;
+  const tagHtml = tags.length
+    ? `<section class="person-info-extra" data-person-info-expandable data-expanded="false"><span>Štítky</span><div class="person-info-tags">${tags.map((tag, index) => `<i${index >= tagLimit ? ' class="person-info-overflow"' : ""}>#${escapeHtml(tag)}</i>`).join("")}</div>${tagsNeedMore ? `<button type="button" data-person-info-toggle>Zobrazit další (${tags.length - tagLimit})</button>` : ""}</section>`
+    : "";
+  const noteHtml = notes
+    ? `<section class="person-info-extra person-info-note" data-person-info-expandable data-expanded="false"><span>Poznámka</span><p class="person-info-note-preview">${escapeHtml(noteNeedsMore ? `${notes.slice(0, noteLimit).trimEnd()}…` : notes)}</p>${noteNeedsMore ? `<p class="person-info-note-full">${escapeHtml(notes)}</p><button type="button" data-person-info-toggle>Zobrazit více</button>` : ""}</section>`
+    : "";
+  return `${tagHtml}${noteHtml}`;
+}
+
+function clampPersonInfoCard(left, top) {
+  const card = document.querySelector("#person-info-card");
+  const view = document.querySelector("#map-view");
+  if (!card || !view || card.hidden) return;
+  const bounds = view.getBoundingClientRect();
+  const safe = 12;
+  const maxLeft = Math.max(safe, bounds.width - card.offsetWidth - safe);
+  const maxTop = Math.max(safe, bounds.height - card.offsetHeight - safe);
+  card.style.left = `${Math.max(safe, Math.min(maxLeft, left))}px`;
+  card.style.top = `${Math.max(safe, Math.min(maxTop, top))}px`;
+}
+
+function positionPersonInfoCard(clientX, clientY) {
+  const card = document.querySelector("#person-info-card");
+  const view = document.querySelector("#map-view");
+  if (!card || !view) return;
+  const bounds = view.getBoundingClientRect();
+  const localX = Number.isFinite(clientX) ? clientX - bounds.left : bounds.width / 2;
+  const localY = Number.isFinite(clientY) ? clientY - bounds.top : bounds.height / 2;
+  requestAnimationFrame(() => {
+    const preferredLeft = localX + 18 + card.offsetWidth <= bounds.width - 12 ? localX + 18 : localX - card.offsetWidth - 18;
+    const preferredTop = localY - 28;
+    clampPersonInfoCard(preferredLeft, preferredTop);
+  });
+}
+
+function openPersonInfoCard(event, person, personNode) {
+  const card = document.querySelector("#person-info-card");
+  if (!card) return;
+  selectedPersonId = person.id;
+  nodeLayer.selectAll("g.person-node")
+    .classed("selected", candidate => candidate.id === person.id)
+    .classed("expanded", false)
+    .each(candidate => { candidate.expanded = false; });
+  d3.select(personNode).raise();
+  const sectionsHtml = personInformationSections(person).map(section => `
+    <section class="person-info-section">
+      <h3>${escapeHtml(section.title)}</h3>
+      <div class="person-info-facts">${section.items.map(item => personInfoFactHtml(...item)).join("")}</div>
+    </section>`).join("");
+  card.dataset.personId = person.id;
+  card.innerHTML = `
+    <header class="person-info-header" data-person-info-drag>
+      <div><span>Osoba</span><strong>${escapeHtml(personName(person))}</strong></div>
+      <div class="person-info-actions">
+        <button type="button" data-person-info-copy aria-label="Kopírovat všechny informace" title="Kopírovat všechny informace">${icons.copy}</button>
+        <button type="button" data-person-info-close aria-label="Zavřít informace">&times;</button>
+      </div>
+    </header>
+    <div class="person-info-scroll">${sectionsHtml}${collapsiblePersonInfoHtml(person)}</div>`;
+  card.hidden = false;
+  const dotRect = personNode?.querySelector(".person-dot, .node-card")?.getBoundingClientRect();
+  positionPersonInfoCard(
+    Number.isFinite(event?.clientX) ? event.clientX : dotRect ? dotRect.right : undefined,
+    Number.isFinite(event?.clientY) ? event.clientY : dotRect ? dotRect.top : undefined
+  );
+}
+
+async function copySelectedPersonInformation(button) {
+  const person = people.find(candidate => candidate.id === selectedPersonId);
+  if (!person) return;
+  const text = personClipboardText(person);
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    else throw new Error("Clipboard API není dostupné");
+  } catch (_) {
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+  button?.classList.add("copied");
+  setTimeout(() => button?.classList.remove("copied"), 900);
+  showToast("Informace o osobě jsou zkopírované.");
+}
+
+function startPersonInfoCardDrag(event) {
+  if (event.button !== 0 || event.target.closest("button, a")) return;
+  const card = document.querySelector("#person-info-card");
+  if (!card || card.hidden) return;
+  event.preventDefault();
+  const startLeft = parseFloat(card.style.left) || 0;
+  const startTop = parseFloat(card.style.top) || 0;
+  const startX = event.clientX;
+  const startY = event.clientY;
+  card.classList.add("is-dragging");
+  const move = moveEvent => clampPersonInfoCard(startLeft + moveEvent.clientX - startX, startTop + moveEvent.clientY - startY);
+  const end = () => {
+    card.classList.remove("is-dragging");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end, {once: true});
+  window.addEventListener("pointercancel", end, {once: true});
+}
+
 function expandedPersonCardTransform(scale = savedZoom.k) {
   return `scale(${1 / Math.max(.035, scale || 1)})`;
 }
@@ -3933,9 +4138,15 @@ function updateExpandedPersonCardScale(scale = savedZoom.k) {
 }
 
 function closeExpandedPersonInfo() {
-  if (!nodeLayer) return false;
+  const card = document.querySelector("#person-info-card");
+  const hadOverlay = Boolean(card && !card.hidden);
+  if (card) {
+    card.hidden = true;
+    card.removeAttribute("data-person-id");
+  }
+  if (!nodeLayer) return hadOverlay;
   const expanded = nodeLayer.selectAll("g.person-node.expanded");
-  const hadExpanded = expanded.size() > 0 || selectedPersonId != null;
+  const hadExpanded = hadOverlay || expanded.size() > 0 || selectedPersonId != null;
   if (!hadExpanded) return false;
   selectedPersonId = null;
   nodeLayer.selectAll("g.person-node")
@@ -4105,27 +4316,17 @@ function initGraphV2() {
   });
   svg.call(zoomBehavior);
   if (savedZoom.x || savedZoom.y || savedZoom.k !== 1) svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(savedZoom.x, savedZoom.y).scale(savedZoom.k));
-  svg.on("click.close-card", () => {
-    const hadExpandedCard = nodeLayer.selectAll("g.person-node.expanded").size() > 0;
-    selectedPersonId = null;
-    nodeLayer.selectAll("g.person-node").classed("selected", false);
-    nodeLayer.selectAll("g.person-node").classed("expanded", false).each(person => { person.expanded = false; });
-    nodeLayer.selectAll("foreignObject").interrupt()
-      .attr("x", -53).attr("y", -15).attr("width", 106).attr("height", 30)
-      .attr("transform", null)
-      .style("opacity", usesCompactPeopleNodes() ? 0 : 1)
-      .style("pointer-events", usesCompactPeopleNodes() ? "none" : "auto");
-    if (hadExpandedCard && currentMode !== "network") {
-      simulation?.stop();
-      updateModeV2(currentMode, false);
-    }
-  });
+  svg.on("click.close-card", closeExpandedPersonInfo);
   renderGraphV2();
   if (needsInitialStructureFit) {
     needsInitialStructureFit = false;
     requestAnimationFrame(() => fitMapToStructure(false));
   }
-  new ResizeObserver(() => updateModeV2(currentMode, false)).observe(document.querySelector("#map-view"));
+  new ResizeObserver(() => {
+    updateModeV2(currentMode, false);
+    const card = document.querySelector("#person-info-card");
+    if (card && !card.hidden) clampPersonInfoCard(parseFloat(card.style.left) || 12, parseFloat(card.style.top) || 12);
+  }).observe(document.querySelector("#map-view"));
 }
 
 function renderGraphV2() {
@@ -4212,35 +4413,12 @@ function renderGraphV2() {
   nodes.selectAll(".node-action-link")
     .on("pointerdown", event => event.stopPropagation())
     .on("click", event => event.stopPropagation());
-  nodes.on("click", function(event, d) {
+  nodes.on("pointerenter.readable-label", function() {
+    d3.select(this).raise();
+  }).on("click", function(event, d) {
     event.stopPropagation();
     hideFieldSectionInfo();
-    if (event.target.closest?.(".node-edit")) return;
-    if (d.expanded && event.target.closest?.(".node-card")) return;
-    const dotsOnly = usesCompactPeopleNodes();
-    const willOpen = !d.expanded;
-    selectedPersonId = willOpen ? d.id : null;
-    nodeLayer.selectAll("g.person-node")
-      .classed("selected", person => person.id === selectedPersonId)
-      .classed("expanded", false)
-      .each(person => { person.expanded = false; });
-    nodeLayer.selectAll("foreignObject").interrupt()
-      .attr("x", -53).attr("y", -15).attr("width", 106).attr("height", 30)
-      .attr("transform", null)
-      .style("opacity", dotsOnly ? 0 : 1)
-      .style("pointer-events", dotsOnly ? "none" : "auto");
-    d.expanded = willOpen;
-    const selectedNode = d3.select(this).classed("expanded", willOpen).raise();
-    const selectedInfo = selectedNode.select("foreignObject")
-      .attr("x", willOpen ? -expandedPersonCardWidth / 2 : -53).attr("y", willOpen ? -40 : -15)
-      .attr("width", willOpen ? expandedPersonCardWidth : 106).attr("height", willOpen ? 80 : 30)
-      .attr("transform", willOpen ? expandedPersonCardTransform() : null)
-      .style("opacity", willOpen || !dotsOnly ? 1 : 0)
-      .style("pointer-events", willOpen || !dotsOnly ? "auto" : "none");
-    if (willOpen) sizeExpandedPersonCard(selectedInfo);
-    if (currentMode !== "network" && !willOpen) {
-      updateModeV2(currentMode, false);
-    }
+    openPersonInfoCard(event, d, this);
   }).call(graphDragBehavior());
   nodes.select(".node-edit")
     .on("pointerdown", event => event.stopPropagation())
@@ -4357,8 +4535,11 @@ function updateModeV2(mode, animate = true) {
     .style("--node-color", selectedPersonColor)
     .style("--cluster-color", person => unitClusterColor(teamById(graphHomeTeamId(person))));
   relationshipLinkLayer.selectAll("line").style("display", null);
-  selectedPersonId = null;
-  nodeLayer.selectAll("g.person-node").classed("selected", false).classed("expanded", false).each(d => d.expanded = false);
+  if (selectedPersonId != null && !graphPeople.some(person => person.id === selectedPersonId)) closeExpandedPersonInfo();
+  nodeLayer.selectAll("g.person-node")
+    .classed("selected", person => person.id === selectedPersonId)
+    .classed("expanded", false)
+    .each(d => { d.expanded = false; });
   nodeLayer.selectAll("foreignObject").attr("x", -53).attr("y", -15).attr("width", 106).attr("height", 30).attr("transform", null);
   updateAdaptiveTitleVisibility(savedZoom.k);
 
@@ -6180,6 +6361,26 @@ function showToast(message) {
 function bindEvents() {
   syncThemeControl();
   syncAppSettingsControls();
+  const personInfoCard = document.querySelector("#person-info-card");
+  personInfoCard.addEventListener("click", event => {
+    event.stopPropagation();
+    const closeButton = event.target.closest("[data-person-info-close]");
+    if (closeButton) return closeExpandedPersonInfo();
+    const copyButton = event.target.closest("[data-person-info-copy]");
+    if (copyButton) return copySelectedPersonInformation(copyButton);
+    const toggle = event.target.closest("[data-person-info-toggle]");
+    if (toggle) {
+      const section = toggle.closest("[data-person-info-expandable]");
+      const expanded = section.dataset.expanded === "true";
+      if (!toggle.dataset.moreLabel) toggle.dataset.moreLabel = toggle.textContent;
+      section.dataset.expanded = String(!expanded);
+      toggle.textContent = expanded ? toggle.dataset.moreLabel : "Zobrazit méně";
+      clampPersonInfoCard(parseFloat(personInfoCard.style.left) || 12, parseFloat(personInfoCard.style.top) || 12);
+    }
+  });
+  personInfoCard.addEventListener("pointerdown", event => {
+    if (event.target.closest("[data-person-info-drag]")) startPersonInfoCardDrag(event);
+  });
   document.querySelector("#app-theme-select").addEventListener("change", event => setThemePreference(event.target.value));
   document.querySelector("#app-text-size").addEventListener("input", event => {
     updateAppSetting("textScale", +event.target.value);
