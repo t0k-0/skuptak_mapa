@@ -1501,13 +1501,11 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   clip-path: polygon(0 9px, 9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
   background: #d9e9f5;
   color: var(--landing-ink);
-  cursor: pointer;
   transition: width .24s ease, background-color .2s ease;
 }
 
 :root.landing-page .maker-tag:hover,
-:root.landing-page .maker-tag:focus-visible,
-:root.landing-page .maker-tag[aria-expanded="true"] {
+:root.landing-page .maker-tag:has(.maker-tag-copy a:focus-visible) {
   width: 212px;
   background: #d9e9f5;
 }
@@ -1524,27 +1522,32 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   gap: 6px;
   overflow: hidden;
   opacity: 0;
-  visibility: hidden;
+  pointer-events: none;
   white-space: nowrap;
   transform: translateY(-50%) translateX(-5px);
-  transition: opacity .16s ease, transform .24s ease, visibility 0s linear .24s;
+  font: 400 11px/1 "Consolas", "Cascadia Mono", "Lucida Console", monospace;
+  transition: opacity .16s ease, transform .24s ease;
 }
 
 :root.landing-page .maker-tag:hover .maker-tag-copy,
-:root.landing-page .maker-tag:focus-visible .maker-tag-copy,
-:root.landing-page .maker-tag[aria-expanded="true"] .maker-tag-copy {
+:root.landing-page .maker-tag:has(.maker-tag-copy a:focus-visible) .maker-tag-copy {
   opacity: 1;
-  visibility: visible;
+  pointer-events: auto;
   transform: translateY(-50%) translateX(0);
-  transition-delay: 0s;
 }
 
-:root.landing-page .maker-tag-copy small {
-  font: 400 11px/1 "Consolas", "Cascadia Mono", "Lucida Console", monospace;
+:root.landing-page .maker-tag-copy a {
+  color: inherit;
+  font: 600 11px/1 "Consolas", "Cascadia Mono", "Lucida Console", monospace;
+  text-decoration-color: var(--landing-blue);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
-:root.landing-page .maker-tag-copy strong {
-  font: 400 19px/1 "Consolas", "Cascadia Mono", "Lucida Console", monospace;
+:root.landing-page .maker-tag-copy a:hover,
+:root.landing-page .maker-tag-copy a:focus-visible {
+  color: var(--landing-blue);
+  outline: none;
 }
 
 :root.landing-page .maker-tag-mark {
@@ -1686,8 +1689,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
   }
 
   :root.landing-page .maker-tag:hover,
-  :root.landing-page .maker-tag:focus-visible,
-  :root.landing-page .maker-tag[aria-expanded="true"] {
+  :root.landing-page .maker-tag:has(.maker-tag-copy a:focus-visible) {
     width: 196px;
   }
 

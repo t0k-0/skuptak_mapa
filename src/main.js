@@ -395,10 +395,10 @@ function renderDatabaseGate() {
           <div class="gate-status" id="database-gate-status" data-state="loading" role="status" aria-live="polite"><span class="gate-spinner" aria-hidden="true"></span>Připravuji čtečku databáze…</div>
         </div>
       </section>
-      <button class="maker-tag" id="maker-tag" type="button" aria-expanded="false" aria-label="Made by TK">
-        <span class="maker-tag-copy"><small>Made by:</small><strong>TK</strong></span>
+      <div class="maker-tag" aria-label="Made by TK">
+        <span class="maker-tag-copy"><span>Made by:</span><a href="https://github.com/t0k-0" target="_blank" rel="noreferrer" aria-label="GitHub profil TK">TK</a></span>
         <span class="maker-tag-mark" aria-hidden="true">${skaviatorSvg}</span>
-      </button>
+      </div>
       <footer class="gate-footer">
         <span>Skupták / ${new Date().getFullYear()}</span>
         <span>Databáze neopustí vaše zařízení</span>
@@ -424,14 +424,6 @@ function renderDatabaseGate() {
   }));
   dropzone.addEventListener("drop", event => handleStartupDatabaseFile(event.dataTransfer?.files?.[0]));
 
-  const makerTag = document.querySelector("#maker-tag");
-  makerTag?.addEventListener("click", () => {
-    const expanded = makerTag.getAttribute("aria-expanded") === "true";
-    makerTag.setAttribute("aria-expanded", String(!expanded));
-  });
-  document.addEventListener("keydown", event => {
-    if (event.key === "Escape") makerTag?.setAttribute("aria-expanded", "false");
-  });
 }
 
 async function handleStartupDatabaseFile(file) {
