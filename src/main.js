@@ -62,7 +62,7 @@ const seed = {
 const app = document.querySelector("#app");
 const THEME_KEY = "mapa-strediska-theme";
 const APP_SETTINGS_KEY = "mapa-strediska-app-settings-v1";
-const DEFAULT_APP_SETTINGS = {textScale: 100, mapBackground: "", showHints: true};
+const DEFAULT_APP_SETTINGS = {textScale: 100, mapBackground: "", showHints: true, showStats: true};
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
 let appSettings = {...DEFAULT_APP_SETTINGS};
@@ -74,6 +74,7 @@ try {
     if (Number.isFinite(+savedSettings.textScale)) appSettings.textScale = Math.max(85, Math.min(125, +savedSettings.textScale));
     if (/^#[0-9a-f]{6}$/i.test(savedSettings.mapBackground || "")) appSettings.mapBackground = savedSettings.mapBackground;
     if (typeof savedSettings.showHints === "boolean") appSettings.showHints = savedSettings.showHints;
+    if (typeof savedSettings.showStats === "boolean") appSettings.showStats = savedSettings.showStats;
   }
 } catch (_) {}
 
@@ -87,9 +88,12 @@ function syncThemeControl() {
   const next = {system: "light", light: "dark", dark: "system"};
   const resolved = resolvedTheme();
   if (button) {
-    button.innerHTML = `${icons[`theme${themePreference[0].toUpperCase()}${themePreference.slice(1)}`]}<span>${labels[themePreference]}</span>`;
+    const landing = document.documentElement.classList.contains("landing-page");
+    const shownTheme = landing ? resolved : themePreference;
+    const nextLabel = landing ? labels[resolved === "dark" ? "light" : "dark"] : labels[next[themePreference]];
+    button.innerHTML = `${icons[`theme${shownTheme[0].toUpperCase()}${shownTheme.slice(1)}`]}<span>${labels[shownTheme]}</span>`;
     button.dataset.resolvedTheme = resolved;
-    button.setAttribute("aria-label", `Motiv: ${labels[themePreference]}. Přepnout na ${labels[next[themePreference]].toLocaleLowerCase("cs")}.`);
+    button.setAttribute("aria-label", `Motiv: ${labels[shownTheme]}. Přepnout na ${nextLabel.toLocaleLowerCase("cs")}.`);
     button.title = button.getAttribute("aria-label");
   }
   const select = document.querySelector("#app-theme-select");
@@ -128,19 +132,22 @@ function syncAppSettingsControls() {
   const backgroundState = document.querySelector("#app-background-state");
   const backgroundReset = document.querySelector("#reset-app-background");
   const hints = document.querySelector("#app-show-hints");
+  const stats = document.querySelector("#app-show-stats");
   if (textInput) textInput.value = String(appSettings.textScale);
   if (textOutput) textOutput.textContent = `${appSettings.textScale} %`;
   if (background) background.value = appSettings.mapBackground || defaultMapBackground();
   if (backgroundState) backgroundState.textContent = appSettings.mapBackground ? "vlastní" : "podle motivu";
   if (backgroundReset) backgroundReset.disabled = !appSettings.mapBackground;
   if (hints) hints.checked = appSettings.showHints;
+  if (stats) stats.checked = appSettings.showStats;
 }
 
 function applyAppSettings(syncControls = true) {
-  document.documentElement.style.setProperty("--app-text-offset", `${(appSettings.textScale - 100) / 5}px`);
+  document.documentElement.style.setProperty("--board-text-offset", `${(appSettings.textScale - 100) / 5}px`);
   document.documentElement.style.setProperty("--map-background", appSettings.mapBackground || "var(--paper-deep)");
   document.documentElement.dataset.customMapBackground = appSettings.mapBackground ? "true" : "false";
   document.documentElement.dataset.showMapHints = appSettings.showHints ? "true" : "false";
+  document.documentElement.dataset.showMapStats = appSettings.showStats ? "true" : "false";
   const map = document.querySelector("#map");
   if (map && appSettings.mapBackground) {
     const [red, green, blue] = appSettings.mapBackground.slice(1).match(/.{2}/g).map(value => parseInt(value, 16));
@@ -163,6 +170,7 @@ function updateAppSetting(key, value) {
   if (key === "textScale" && teamLayer) requestAnimationFrame(() => {
     applyAdaptiveTeamTitles(teamLayer.selectAll("g.team-node"), graphViewport.width);
     updateAdaptiveTitleVisibility(savedZoom.k);
+    if (currentMode === "field") updateModeV2("field", false);
   });
 }
 
@@ -413,6 +421,7 @@ function renderDatabaseGate() {
           <span class="gate-wordmark-logo" aria-hidden="true">${skuptakHorizontalSvg}</span>
           <span><b>Středisko Skuptáci</b><small>Kutná Hora 215.01</small></span>
         </a>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Přepnout motiv"></button>
       </header>
       <section class="gate-layout" aria-labelledby="gate-title">
         <div class="gate-intro">
@@ -456,6 +465,10 @@ function renderDatabaseGate() {
 
   const input = document.querySelector("#startup-database-file");
   const dropzone = document.querySelector("#database-dropzone");
+  syncThemeControl();
+  document.querySelector("#theme-toggle").addEventListener("click", () => {
+    setThemePreference(resolvedTheme() === "dark" ? "light" : "dark");
+  });
   input.addEventListener("change", () => handleStartupDatabaseFile(input.files?.[0]));
   dropzone.addEventListener("keydown", event => {
     if (event.key === "Enter" || event.key === " ") {
@@ -535,15 +548,16 @@ function renderShell() {
           <div class="app-settings-panel">
             <div class="app-settings-head"><span class="eyebrow">Rozhraní</span><strong>Nastavení aplikace</strong></div>
             <label class="app-setting-row"><span>Motiv</span><select id="app-theme-select"><option value="system">Podle systému</option><option value="light">Světlý</option><option value="dark">Tmavý</option></select></label>
-            <label class="app-setting-row app-setting-slider"><span>Velikost textu <output id="app-text-size-output">${appSettings.textScale} %</output></span><input id="app-text-size" type="range" min="85" max="125" step="5" value="${appSettings.textScale}"></label>
+            <label class="app-setting-row app-setting-slider"><span>Text na pracovní ploše <output id="app-text-size-output">${appSettings.textScale} %</output></span><input id="app-text-size" type="range" min="85" max="125" step="5" value="${appSettings.textScale}"></label>
             <div class="app-setting-row"><span>Pozadí mapy <small id="app-background-state">${appSettings.mapBackground ? "vlastní" : "podle motivu"}</small></span><div class="app-color-control"><input id="app-background-color" type="color" value="${appSettings.mapBackground || defaultMapBackground()}" aria-label="Barva pozadí mapy"><button type="button" id="reset-app-background"${appSettings.mapBackground ? "" : " disabled"}>Motiv</button></div></div>
             <label class="app-setting-check"><input id="app-show-hints" type="checkbox"${appSettings.showHints ? " checked" : ""}><span>Zobrazit nápovědu v mapě</span></label>
+            <label class="app-setting-check"><input id="app-show-stats" type="checkbox"${appSettings.showStats ? " checked" : ""}><span>Zobrazit statistiky vpravo nahoře</span></label>
             <button class="app-settings-reset" id="reset-app-settings" type="button">Obnovit vzhled</button>
           </div>
         </details>
         <div class="db-card">
           <div class="db-card-top"><span class="db-status"><i class="db-dot"></i> SQLite aktivní</span><span id="db-size" class="eyebrow">— KB</span></div>
-          <p><b class="db-file-name">${escapeHtml(loadedDatabaseName)}</b><br>Otevřeno jen pro tuto relaci.</p>
+          <p><b class="db-file-name" title="${escapeHtml(loadedDatabaseName)}">${escapeHtml(loadedDatabaseName)}</b><span>Jen tato relace</span></p>
         </div>
         <div class="build-note">MAPA / 01 · 2026</div>
       </aside>
@@ -552,6 +566,16 @@ function renderShell() {
           <div class="title-block"><span class="eyebrow" id="section-kicker">Interaktivní přehled</span><h1 id="section-title">Kdo tvoří středisko?</h1></div>
           <div class="top-actions">
             <div class="search-wrap" role="search">${icons.search}<input id="search" class="search-input" type="search" placeholder="Hledat jméno, roli, štítek…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="map-search-suggestions" aria-expanded="false"><span class="search-key">/</span><div class="map-search-suggestions" id="map-search-suggestions" role="listbox" hidden></div></div>
+            <div class="export-control">
+              <button class="export-top-button" id="export-toggle" type="button" aria-label="Exportovat aktuální pohled" aria-expanded="false">${icons.export}<span>Export</span></button>
+              <div class="export-panel" id="export-panel" role="menu" aria-label="Možnosti exportu">
+                <div class="export-title"><span class="eyebrow">Aktuální obsah</span><strong id="export-panel-title">Export pohledu</strong></div>
+                <button type="button" data-map-export="pdf" data-export-kind="map"><b>PDF</b><span>Grafický pohled připravený pro tisk</span></button>
+                <button type="button" data-map-export="svg" data-export-kind="map"><b>SVG</b><span>Vektorový obraz aktuální mapy</span></button>
+                <button type="button" data-map-export="xlsx" data-export-kind="table"><b>XLSX</b><span>Výslednou tabulku otevřete v Excelu</span></button>
+                <p id="export-panel-note">Export respektuje aktuální pohled a filtry.</p>
+              </div>
+            </div>
           </div>
         </header>
         <section class="view map-view" id="map-view">
@@ -3663,11 +3687,12 @@ function isSkuptaciCenterNode(team) {
 
 function applyAdaptiveTeamTitles(selection, viewportWidth) {
   const compactFactor = Math.max(.84, Math.min(1, viewportWidth / 920));
+  const boardTextScale = appSettings.textScale / 100;
   selection.each(function(d) {
     const label = d.name?.trim() || "Bez názvu";
     const isSkuptaciCenter = isSkuptaciCenterNode(d);
     const baseFontSize = d.level === 0 ? 20 : d.level === 1 ? 14 : 13;
-    const fontSize = Math.round(baseFontSize * compactFactor * 10) / 10;
+    const fontSize = Math.round(baseFontSize * compactFactor * boardTextScale * 10) / 10;
     const group = d3.select(this);
 
     if (isSkuptaciCenter) {
@@ -3725,7 +3750,7 @@ function applyAdaptiveTeamTitles(selection, viewportWidth) {
 }
 
 function addAdaptiveFieldTitles(zone, viewportWidth, fields) {
-  const fontSize = Math.max(10.5, Math.min(14, viewportWidth / Math.max(68, fields.length * 18)));
+  const fontSize = Math.max(10.5, Math.min(14, viewportWidth / Math.max(68, fields.length * 18))) * appSettings.textScale / 100;
   const maxChars = Math.max(9, Math.min(24, Math.floor(viewportWidth / Math.max(42, fields.length * 6))));
   const titles = zone.append("text")
     .attr("class", "field-title")
@@ -3809,7 +3834,7 @@ function showOddilReachInfo(event, field) {
     ? `<div class="reach-overlap-list">${summary.overlaps.map(([name, count]) => `<b style="--section-color:${escapeHtml(field.color)}">${escapeHtml(name)} <small>${count}</small></b>`).join("")}</div>`
     : `<p class="reach-empty">Bez sdílených členů s jiným oddílem</p>`;
   popover.innerHTML = `
-    <span>Dosah oddílu · připnuto</span>
+    <span data-map-panel-drag>Dosah oddílu · připnuto</span>
     <div class="reach-summary-heading"><i style="--section-color:${escapeHtml(field.color)}"></i><strong>${escapeHtml(field.name)}</strong><em>${summary.memberCount} ${summary.memberCount === 1 ? "člověk" : "lidí"}</em></div>
     <div class="reach-stats"><b><small>Jen zde</small>${summary.exclusiveCount}</b><b><small>Sdílení</small>${summary.sharedCount}</b></div>
     ${summary.sharedCount ? `<span class="reach-overlap-caption">Sdíleno s jednotkami</span>${overlapHtml}` : overlapHtml}
@@ -3881,7 +3906,7 @@ function showUnitActionPopover(event, team) {
   selectedUnitActionId = team.id;
   const memberCount = peopleInUnit(team.id, true).length;
   const kind = team.level === 0 ? "Středisko" : team.level === 1 ? "Oddíl / jednotka" : "Družina";
-  popover.innerHTML = `<button type="button" class="unit-popover-close" data-unit-action="close" aria-label="Zavřít">×</button><span class="eyebrow">${kind}</span><strong>${escapeHtml(team.name)}</strong><small>${memberCount} ${memberCount === 1 ? "člověk" : "lidí"} včetně potomků</small><button type="button" class="primary-button" data-unit-action="sql" data-unit-id="${team.id}">Zobrazit lidi v SQL laboratoři →</button>`;
+  popover.innerHTML = `<button type="button" class="unit-popover-close" data-unit-action="close" aria-label="Zavřít">×</button><span class="eyebrow" data-map-panel-drag>${kind}</span><strong>${escapeHtml(team.name)}</strong><small>${memberCount} ${memberCount === 1 ? "člověk" : "lidí"} včetně potomků</small><button type="button" class="primary-button" data-unit-action="sql" data-unit-id="${team.id}">Zobrazit lidi v SQL laboratoři →</button>`;
   popover.hidden = false;
   const bounds = view.getBoundingClientRect();
   const wantedLeft = event.clientX - bounds.left + 14;
@@ -3993,14 +4018,18 @@ function collapsiblePersonInfoHtml(person) {
 
 function clampPersonInfoCard(left, top) {
   const card = document.querySelector("#person-info-card");
+  clampMapFloatingPanel(card, left, top);
+}
+
+function clampMapFloatingPanel(panel, left, top) {
   const view = document.querySelector("#map-view");
-  if (!card || !view || card.hidden) return;
+  if (!panel || !view || panel.hidden) return;
   const bounds = view.getBoundingClientRect();
   const safe = 12;
-  const maxLeft = Math.max(safe, bounds.width - card.offsetWidth - safe);
-  const maxTop = Math.max(safe, bounds.height - card.offsetHeight - safe);
-  card.style.left = `${Math.max(safe, Math.min(maxLeft, left))}px`;
-  card.style.top = `${Math.max(safe, Math.min(maxTop, top))}px`;
+  const maxLeft = Math.max(safe, bounds.width - panel.offsetWidth - safe);
+  const maxTop = Math.max(safe, bounds.height - panel.offsetHeight - safe);
+  panel.style.left = `${Math.max(safe, Math.min(maxLeft, left))}px`;
+  panel.style.top = `${Math.max(safe, Math.min(maxTop, top))}px`;
 }
 
 function positionPersonInfoCard(clientX, clientY) {
@@ -4072,18 +4101,22 @@ async function copySelectedPersonInformation(button) {
 }
 
 function startPersonInfoCardDrag(event) {
-  if (event.button !== 0 || event.target.closest("button, a")) return;
   const card = document.querySelector("#person-info-card");
-  if (!card || card.hidden) return;
+  startMapFloatingPanelDrag(event, card);
+}
+
+function startMapFloatingPanelDrag(event, panel) {
+  if (event.button !== 0 || event.target.closest("button, a") || !panel || panel.hidden) return;
   event.preventDefault();
-  const startLeft = parseFloat(card.style.left) || 0;
-  const startTop = parseFloat(card.style.top) || 0;
+  event.stopPropagation();
+  const startLeft = parseFloat(panel.style.left) || 0;
+  const startTop = parseFloat(panel.style.top) || 0;
   const startX = event.clientX;
   const startY = event.clientY;
-  card.classList.add("is-dragging");
-  const move = moveEvent => clampPersonInfoCard(startLeft + moveEvent.clientX - startX, startTop + moveEvent.clientY - startY);
+  panel.classList.add("is-dragging");
+  const move = moveEvent => clampMapFloatingPanel(panel, startLeft + moveEvent.clientX - startX, startTop + moveEvent.clientY - startY);
   const end = () => {
-    card.classList.remove("is-dragging");
+    panel.classList.remove("is-dragging");
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", end);
     window.removeEventListener("pointercancel", end);
@@ -4177,7 +4210,7 @@ function showFieldSectionInfo(event, fallbackField) {
   const title = fieldDimension === "tags"
     ? (covering.length > 1 ? "Překryv štítků" : "Štítek")
     : (covering.length > 1 ? "Překryv polí" : "Pole");
-  popover.innerHTML = `<span>${title}</span><div>${covering.map(field => `<b style="--section-color:${escapeHtml(field.color)}">${fieldDimension === "tags" ? "#" : ""}${escapeHtml(field.name)}</b>`).join("")}</div>`;
+  popover.innerHTML = `<span data-map-panel-drag>${title}</span><div>${covering.map(field => `<b style="--section-color:${escapeHtml(field.color)}">${fieldDimension === "tags" ? "#" : ""}${escapeHtml(field.name)}</b>`).join("")}</div>`;
   popover.hidden = false;
   const bounds = view.getBoundingClientRect();
   const wantedLeft = event.clientX - bounds.left + 14;
@@ -4324,8 +4357,10 @@ function initGraphV2() {
   }
   new ResizeObserver(() => {
     updateModeV2(currentMode, false);
-    const card = document.querySelector("#person-info-card");
-    if (card && !card.hidden) clampPersonInfoCard(parseFloat(card.style.left) || 12, parseFloat(card.style.top) || 12);
+    ["#person-info-card", "#field-section-popover", "#unit-action-popover"].forEach(selector => {
+      const panel = document.querySelector(selector);
+      if (panel && !panel.hidden) clampMapFloatingPanel(panel, parseFloat(panel.style.left) || 12, parseFloat(panel.style.top) || 12);
+    });
   }).observe(document.querySelector("#map-view"));
 }
 
@@ -4972,6 +5007,7 @@ function showSection(section) {
   document.querySelector("#sql-view").style.display = section === "sql" ? "block" : "none";
   document.querySelector("#search").closest(".search-wrap").style.display = isMap ? "block" : "none";
   syncSectionHeader();
+  syncExportMenu();
   if (!isMap) {
     simulation?.stop();
     hideMapSearchSuggestions();
@@ -5906,6 +5942,7 @@ function runSelect() {
   if (!/^(select|with)\b/i.test(executableSql.trim()) || /\b(insert|update|delete|drop|alter|create|replace|attach|detach|vacuum)\b/i.test(executableSql)) {
     output.innerHTML = '<div class="error-box">Tato konzole přijímá pouze bezpečné SELECT dotazy. Změny lidí provádějte přes formulář „Přidat člověka“.</div>';
     meta.textContent = "Dotaz odmítnut";
+    syncExportMenu();
     return;
   }
   const started = performance.now();
@@ -5914,6 +5951,7 @@ function runSelect() {
     if (!results.length) {
       output.innerHTML = '<div class="empty-result"><div><b>0 řádků</b>Dotaz proběhl v pořádku, ale nic nenašel.</div></div>';
       meta.textContent = `0 řádků · ${Math.round(performance.now()-started)} ms`;
+      syncExportMenu();
       return;
     }
     const {columns, values} = results[0];
@@ -5944,9 +5982,11 @@ function runSelect() {
     });
     output.replaceChildren(table);
     meta.textContent = `${values.length} ${values.length === 1 ? "řádek" : "řádků"} · ${Math.round(performance.now()-started)} ms`;
+    syncExportMenu();
   } catch (error) {
     output.innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
     meta.textContent = "Chyba v dotazu";
+    syncExportMenu();
   }
 }
 
@@ -6197,6 +6237,36 @@ function mapExportFilename(extension) {
   return `${slug}-${localDate}.${extension}`;
 }
 
+function tableExportFilename() {
+  const summary = document.querySelector("#sql-builder-summary")?.textContent || "sql-vysledky";
+  const slug = summary
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("cs")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 72) || "sql-vysledky";
+  const date = new Date();
+  const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return `${slug}-${localDate}.xlsx`;
+}
+
+function syncExportMenu() {
+  const isMap = activeSection === "map";
+  const resultTable = document.querySelector("#result-wrap .result-table");
+  const panelTitle = document.querySelector("#export-panel-title");
+  const note = document.querySelector("#export-panel-note");
+  document.querySelectorAll('[data-export-kind="map"]').forEach(button => { button.hidden = !isMap; });
+  document.querySelectorAll('[data-export-kind="table"]').forEach(button => {
+    button.hidden = isMap;
+    button.disabled = !resultTable;
+  });
+  if (panelTitle) panelTitle.textContent = isMap ? "Export pohledu" : "Export tabulky";
+  if (note) note.textContent = isMap
+    ? "Export respektuje aktuální pohled, filtry a barevné nastavení."
+    : resultTable ? "Exportuje právě zobrazený výsledek SQL dotazu." : "Nejdříve spusťte SQL dotaz, který vytvoří tabulku.";
+}
+
 function closeMapControlPanels() {
   ["filter", "export"].forEach(name => {
     document.querySelector(`#${name}-panel`)?.classList.remove("open");
@@ -6350,6 +6420,30 @@ function exportCurrentMapAsSvg() {
   showToast(`SVG pohledu „${context.view}“ bylo staženo.`);
 }
 
+async function exportCurrentTableAsXlsx() {
+  const table = document.querySelector("#result-wrap .result-table");
+  if (!table) {
+    showToast("Nejdříve spusťte dotaz s tabulkovým výsledkem.");
+    syncExportMenu();
+    return;
+  }
+  try {
+    const {utils: xlsxUtils, writeFileXLSX} = await import("xlsx");
+    const workbook = xlsxUtils.table_to_book(table, {sheet: "Výsledky SQL"});
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = [...table.rows].map(row => [...row.cells].map(cell => cell.textContent?.trim() || ""));
+    const columnCount = Math.max(0, ...rows.map(row => row.length));
+    sheet["!cols"] = Array.from({length: columnCount}, (_, columnIndex) => ({
+      wch: Math.min(52, Math.max(10, ...rows.map(row => String(row[columnIndex] || "").length + 2)))
+    }));
+    writeFileXLSX(workbook, tableExportFilename(), {compression: true});
+    closeMapControlPanels();
+    showToast("Tabulka byla exportována do XLSX.");
+  } catch (error) {
+    showToast(`XLSX se nepodařilo vytvořit: ${error.message}`);
+  }
+}
+
 function showToast(message) {
   const el = document.querySelector("#toast");
   el.textContent = message;
@@ -6381,6 +6475,13 @@ function bindEvents() {
   personInfoCard.addEventListener("pointerdown", event => {
     if (event.target.closest("[data-person-info-drag]")) startPersonInfoCardDrag(event);
   });
+  ["#field-section-popover", "#unit-action-popover"].forEach(selector => {
+    const panel = document.querySelector(selector);
+    panel.addEventListener("click", event => event.stopPropagation());
+    panel.addEventListener("pointerdown", event => {
+      if (event.target.closest("[data-map-panel-drag]")) startMapFloatingPanelDrag(event, panel);
+    });
+  });
   document.querySelector("#app-theme-select").addEventListener("change", event => setThemePreference(event.target.value));
   document.querySelector("#app-text-size").addEventListener("input", event => {
     updateAppSetting("textScale", +event.target.value);
@@ -6391,6 +6492,9 @@ function bindEvents() {
   document.querySelector("#reset-app-background").addEventListener("click", () => updateAppSetting("mapBackground", ""));
   document.querySelector("#app-show-hints").addEventListener("change", event => {
     updateAppSetting("showHints", event.target.checked);
+  });
+  document.querySelector("#app-show-stats").addEventListener("change", event => {
+    updateAppSetting("showStats", event.target.checked);
   });
   document.querySelector("#reset-app-settings").addEventListener("click", () => {
     appSettings = {...DEFAULT_APP_SETTINGS};
@@ -6463,6 +6567,7 @@ function bindEvents() {
     const panel = document.querySelector("#export-panel");
     const open = !panel.classList.contains("open");
     closeMapControlPanels();
+    syncExportMenu();
     panel.classList.toggle("open", open);
     event.currentTarget.setAttribute("aria-expanded", String(open));
   });
@@ -6471,6 +6576,7 @@ function bindEvents() {
     const action = event.target.closest("[data-map-export]")?.dataset.mapExport;
     if (action === "pdf") exportCurrentMapAsPdf();
     if (action === "svg") exportCurrentMapAsSvg();
+    if (action === "xlsx") exportCurrentTableAsXlsx();
   });
   const filterPanel = document.querySelector("#filter-panel");
   filterPanel.addEventListener("click", event => {

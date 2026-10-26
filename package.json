@@ -13,7 +13,8 @@
     "d3": "^7.9.0",
     "read-excel-file": "^9.3.12",
     "sql.js": "^1.13.0",
-    "venn.js": "^0.2.20"
+    "venn.js": "^0.2.20",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "vite": "^7.1.7"
