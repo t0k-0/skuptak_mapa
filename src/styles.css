@@ -1836,6 +1836,7 @@ button:disabled { cursor: not-allowed; opacity: .45; transform: none !important;
 :root.landing-page .gate-header { background: var(--landing-shell); }
 :root.landing-page .gate-header { border-bottom: 1px solid color-mix(in srgb, var(--landing-accent) 28%, transparent); }
 :root.landing-page .gate-wordmark { color: var(--landing-text); }
+:root.landing-page .gate-wordmark-logo { color: var(--landing-text); }
 :root.landing-page .gate-wordmark > span:last-child { border-left-color: color-mix(in srgb, var(--landing-accent) 72%, transparent); }
 :root.landing-page .gate-wordmark b { color: var(--landing-text); }
 :root.landing-page .gate-wordmark small { color: var(--landing-accent); }
