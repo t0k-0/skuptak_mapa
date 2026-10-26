@@ -61,11 +61,20 @@ const seed = {
 
 const app = document.querySelector("#app");
 const THEME_KEY = "mapa-strediska-theme";
+const APP_SETTINGS_KEY = "mapa-strediska-app-settings-v1";
+const DEFAULT_APP_SETTINGS = {textScale: 100, mapBackground: "", showHints: true};
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
+let appSettings = {...DEFAULT_APP_SETTINGS};
 try {
   const savedTheme = localStorage.getItem(THEME_KEY);
   if (["system", "light", "dark"].includes(savedTheme)) themePreference = savedTheme;
+  const savedSettings = JSON.parse(localStorage.getItem(APP_SETTINGS_KEY) || "null");
+  if (savedSettings && typeof savedSettings === "object") {
+    if (Number.isFinite(+savedSettings.textScale)) appSettings.textScale = Math.max(85, Math.min(125, +savedSettings.textScale));
+    if (/^#[0-9a-f]{6}$/i.test(savedSettings.mapBackground || "")) appSettings.mapBackground = savedSettings.mapBackground;
+    if (typeof savedSettings.showHints === "boolean") appSettings.showHints = savedSettings.showHints;
+  }
 } catch (_) {}
 
 function resolvedTheme(preference = themePreference) {
@@ -74,14 +83,17 @@ function resolvedTheme(preference = themePreference) {
 
 function syncThemeControl() {
   const button = document.querySelector("#theme-toggle");
-  if (!button) return;
   const labels = {system: "Systém", light: "Světlý", dark: "Tmavý"};
   const next = {system: "light", light: "dark", dark: "system"};
   const resolved = resolvedTheme();
-  button.innerHTML = `${icons[`theme${themePreference[0].toUpperCase()}${themePreference.slice(1)}`]}<span>${labels[themePreference]}</span>`;
-  button.dataset.resolvedTheme = resolved;
-  button.setAttribute("aria-label", `Motiv: ${labels[themePreference]}. Přepnout na ${labels[next[themePreference]].toLocaleLowerCase("cs")}.`);
-  button.title = button.getAttribute("aria-label");
+  if (button) {
+    button.innerHTML = `${icons[`theme${themePreference[0].toUpperCase()}${themePreference.slice(1)}`]}<span>${labels[themePreference]}</span>`;
+    button.dataset.resolvedTheme = resolved;
+    button.setAttribute("aria-label", `Motiv: ${labels[themePreference]}. Přepnout na ${labels[next[themePreference]].toLocaleLowerCase("cs")}.`);
+    button.title = button.getAttribute("aria-label");
+  }
+  const select = document.querySelector("#app-theme-select");
+  if (select) select.value = themePreference;
 }
 
 function applyTheme(preference = themePreference, syncControl = true) {
@@ -89,7 +101,10 @@ function applyTheme(preference = themePreference, syncControl = true) {
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.themePreference = preference;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", resolved === "dark" ? "#0d1210" : "#f4f2eb");
-  if (syncControl) syncThemeControl();
+  if (syncControl) {
+    syncThemeControl();
+    syncAppSettingsControls();
+  }
 }
 
 function setThemePreference(preference) {
@@ -98,7 +113,61 @@ function setThemePreference(preference) {
   applyTheme(themePreference);
 }
 
+function defaultMapBackground() {
+  return resolvedTheme() === "dark" ? "#253246" : "#eff3f6";
+}
+
+function persistAppSettings() {
+  try { localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(appSettings)); } catch (_) {}
+}
+
+function syncAppSettingsControls() {
+  const textInput = document.querySelector("#app-text-size");
+  const textOutput = document.querySelector("#app-text-size-output");
+  const background = document.querySelector("#app-background-color");
+  const backgroundState = document.querySelector("#app-background-state");
+  const backgroundReset = document.querySelector("#reset-app-background");
+  const hints = document.querySelector("#app-show-hints");
+  if (textInput) textInput.value = String(appSettings.textScale);
+  if (textOutput) textOutput.textContent = `${appSettings.textScale} %`;
+  if (background) background.value = appSettings.mapBackground || defaultMapBackground();
+  if (backgroundState) backgroundState.textContent = appSettings.mapBackground ? "vlastní" : "podle motivu";
+  if (backgroundReset) backgroundReset.disabled = !appSettings.mapBackground;
+  if (hints) hints.checked = appSettings.showHints;
+}
+
+function applyAppSettings(syncControls = true) {
+  document.documentElement.style.setProperty("--app-text-offset", `${(appSettings.textScale - 100) / 5}px`);
+  document.documentElement.style.setProperty("--map-background", appSettings.mapBackground || "var(--paper-deep)");
+  document.documentElement.dataset.customMapBackground = appSettings.mapBackground ? "true" : "false";
+  document.documentElement.dataset.showMapHints = appSettings.showHints ? "true" : "false";
+  const map = document.querySelector("#map");
+  if (map && appSettings.mapBackground) {
+    const [red, green, blue] = appSettings.mapBackground.slice(1).match(/.{2}/g).map(value => parseInt(value, 16));
+    const darkBackground = (red * 299 + green * 587 + blue * 114) / 1000 < 150;
+    map.style.setProperty("--ink", darkBackground ? "#f4f7fa" : "#2f3a4b");
+    map.style.setProperty("--muted", darkBackground ? "#c1cad0" : "#6d7987");
+    map.style.setProperty("--label-halo", `rgba(${red}, ${green}, ${blue}, .95)`);
+    map.style.setProperty("--graph-link", darkBackground ? "rgba(244, 247, 250, .55)" : "rgba(47, 58, 75, .46)");
+    map.style.setProperty("--graph-guide", darkBackground ? "rgba(244, 247, 250, .2)" : "rgba(47, 58, 75, .17)");
+  } else if (map) {
+    ["--ink", "--muted", "--label-halo", "--graph-link", "--graph-guide"].forEach(property => map.style.removeProperty(property));
+  }
+  if (syncControls) syncAppSettingsControls();
+}
+
+function updateAppSetting(key, value) {
+  appSettings = {...appSettings, [key]: value};
+  persistAppSettings();
+  applyAppSettings();
+  if (key === "textScale" && teamLayer) requestAnimationFrame(() => {
+    applyAdaptiveTeamTitles(teamLayer.selectAll("g.team-node"), graphViewport.width);
+    updateAdaptiveTitleVisibility(savedZoom.k);
+  });
+}
+
 applyTheme(themePreference, false);
+applyAppSettings(false);
 themeMedia.addEventListener("change", () => {
   if (themePreference === "system") applyTheme("system");
 });
@@ -152,8 +221,7 @@ const CROSS_GROUP_PERSON_BUFFER = 130;
 const CLUSTER_CLEAR_GAP = 210;
 const DEPARTMENT_CLEAR_GAP = 320;
 const ODDIL_FIELD_NODE_CLEARANCE = 22;
-const DEFAULT_PHYSICS = {center: .16, repel: 10, linkForce: .35, linkDistance: 110};
-let physicsSettings = {...DEFAULT_PHYSICS};
+const physicsSettings = Object.freeze({center: .16, repel: 10, linkForce: .35, linkDistance: 110});
 const DEFAULT_CONNECTION_FILTERS = {hierarchy: true, assignment: true, membership: true, relationship: true};
 let connectionFilters = {...DEFAULT_CONNECTION_FILTERS};
 let hiddenRelationshipTypes = [];
@@ -170,7 +238,6 @@ let pinnedOddilReachName = null;
 let selectedUnitActionId = null;
 let graphFilterFrame;
 let graphFitTimer;
-let physicsUpdateFrame;
 let spreadsheetImportState = null;
 let graphViewport = {width: 1000, height: 650};
 let stableSimulationTicks = 0;
@@ -179,10 +246,13 @@ let personTagSuggestionValues = [];
 
 const icons = {
   map: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3z"/><path d="M8 3v15M16 6v15"/></svg>',
+  structure: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="5" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M12 7.5v4M6 15.5v-4h12v4"/></svg>',
+  field: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg>',
+  age: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 19h16M6 16V9M12 16V5M18 16v-4"/><circle cx="6" cy="7" r="1.5"/><circle cx="12" cy="3" r="1.5"/><circle cx="18" cy="10" r="1.5"/></svg>',
   sql: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
   edit: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20h4l11-11-4-4L4 16z"/><path d="m13.5 6.5 4 4M4 4h6M4 9h4"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
-  physics: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>',
+  settings: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>',
   filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16l-6.2 7.1v5.2l-3.6 1.8v-7z"/></svg>',
   export: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 15v5h14v-5"/></svg>',
   themeSystem: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
@@ -206,9 +276,6 @@ function loadWorkspaceState() {
     if (!saved.zooms && saved.zoom && [saved.zoom.x, saved.zoom.y, saved.zoom.k].every(Number.isFinite)) savedZoomByMode[currentMode] = {...saved.zoom};
     savedZoom = {...savedZoomByMode[currentMode]};
     needsInitialStructureFit = saved.structureLayoutVersion !== STRUCTURE_LAYOUT_VERSION;
-    Object.keys(DEFAULT_PHYSICS).forEach(key => {
-      if (Number.isFinite(saved.physicsSettings?.[key])) physicsSettings[key] = saved.physicsSettings[key];
-    });
     Object.keys(displayOptions).forEach(key => { if (typeof saved.displayOptions?.[key] === "boolean") displayOptions[key] = saved.displayOptions[key]; });
     Object.keys(DEFAULT_CONNECTION_FILTERS).forEach(key => { if (typeof saved.connectionFilters?.[key] === "boolean") connectionFilters[key] = saved.connectionFilters[key]; });
     if (Array.isArray(saved.hiddenRelationshipTypes)) hiddenRelationshipTypes = saved.hiddenRelationshipTypes.map(String);
@@ -225,6 +292,8 @@ function loadWorkspaceState() {
     if (saved.positions && typeof saved.positions === "object") {
       ["network", "field", "age"].forEach(mode => { if (saved.positions[mode] && typeof saved.positions[mode] === "object") positionCache[mode] = saved.positions[mode]; });
     }
+    displayOptions.primary = connectionFilters.hierarchy || connectionFilters.assignment || connectionFilters.membership;
+    displayOptions.secondary = connectionFilters.relationship;
     if (needsInitialStructureFit) positionCache = {network: {}, field: {}, age: {}};
   } catch (_) {}
 }
@@ -245,7 +314,7 @@ function captureGraphPositions(mode = currentMode) {
 function persistWorkspaceState(capture = false) {
   if (capture) captureGraphPositions();
   try {
-    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, section: activeSection, searchTerm, displayOptions, physicsSettings, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
+    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
   } catch (_) {}
 }
 
@@ -254,30 +323,9 @@ function scheduleWorkspaceState() {
   workspaceSaveTimer = setTimeout(() => persistWorkspaceState(false), 160);
 }
 
-function updatePhysicsOutput(key) {
-  const output = document.querySelector(`[data-physics-output="${key}"]`);
-  if (!output) return;
-  const value = physicsSettings[key];
-  output.textContent = key === "linkDistance" ? `${Math.round(value)} px` : key === "repel" ? value.toFixed(1) : value.toFixed(2);
-}
-
-function schedulePhysicsUpdate() {
-  cancelAnimationFrame(physicsUpdateFrame);
-  physicsUpdateFrame = requestAnimationFrame(() => {
-    updateModeV2(currentMode, false);
-    if (currentMode === "network") simulation?.alpha(Math.max(simulation.alpha(), .28)).restart();
-    persistWorkspaceState(false);
-  });
-}
-
 function syncWorkspaceControls() {
-  document.querySelectorAll(".mode-button").forEach(button => button.classList.toggle("active", button.dataset.mode === currentMode));
+  syncPrimaryNavigation();
   document.querySelectorAll(".field-button").forEach(button => button.classList.toggle("active", button.dataset.field === fieldDimension));
-  document.querySelectorAll("[data-option]").forEach(input => { input.checked = displayOptions[input.dataset.option]; });
-  document.querySelectorAll("[data-physics]").forEach(input => {
-    input.value = physicsSettings[input.dataset.physics];
-    updatePhysicsOutput(input.dataset.physics);
-  });
   const search = document.querySelector("#search");
   if (search) search.value = searchTerm;
 }
@@ -459,6 +507,7 @@ async function startApplication() {
   document.documentElement.classList.remove("landing-page");
   activeSection = "map";
   renderShell();
+  applyAppSettings(false);
   syncWorkspaceControls();
   await loadPeople();
   fillCategoryOptions();
@@ -474,10 +523,23 @@ function renderShell() {
         <div class="brand"><img class="brand-logo" src="${skuptakEmblemUrl}" alt=""><div class="brand-copy"><strong>Středisko Skuptáci</strong><span>Kutná Hora 215.01</span></div></div>
         <div class="nav-label">Pohled</div>
         <nav class="nav-list" aria-label="Hlavní navigace">
-          <button class="nav-button active" data-section="map">${icons.map}<span>Vizuální mapa</span></button>
+          <button class="nav-button active" data-view-mode="network">${icons.structure}<span>Struktura</span></button>
+          <button class="nav-button" data-view-mode="field">${icons.field}<span>Field</span></button>
+          <button class="nav-button" data-view-mode="age">${icons.age}<span>Věk</span></button>
           <button class="nav-button" data-section="sql">${icons.sql}<span>SQL laboratoř</span></button>
         </nav>
         <div class="sidebar-spacer"></div>
+        <details class="app-settings" id="app-settings">
+          <summary>${icons.settings}<span>Nastavení aplikace</span></summary>
+          <div class="app-settings-panel">
+            <div class="app-settings-head"><span class="eyebrow">Rozhraní</span><strong>Nastavení aplikace</strong></div>
+            <label class="app-setting-row"><span>Motiv</span><select id="app-theme-select"><option value="system">Podle systému</option><option value="light">Světlý</option><option value="dark">Tmavý</option></select></label>
+            <label class="app-setting-row app-setting-slider"><span>Velikost textu <output id="app-text-size-output">${appSettings.textScale} %</output></span><input id="app-text-size" type="range" min="85" max="125" step="5" value="${appSettings.textScale}"></label>
+            <div class="app-setting-row"><span>Pozadí mapy <small id="app-background-state">${appSettings.mapBackground ? "vlastní" : "podle motivu"}</small></span><div class="app-color-control"><input id="app-background-color" type="color" value="${appSettings.mapBackground || defaultMapBackground()}" aria-label="Barva pozadí mapy"><button type="button" id="reset-app-background"${appSettings.mapBackground ? "" : " disabled"}>Motiv</button></div></div>
+            <label class="app-setting-check"><input id="app-show-hints" type="checkbox"${appSettings.showHints ? " checked" : ""}><span>Zobrazit nápovědu v mapě</span></label>
+            <button class="app-settings-reset" id="reset-app-settings" type="button">Obnovit vzhled</button>
+          </div>
+        </details>
         <div class="db-card">
           <div class="db-card-top"><span class="db-status"><i class="db-dot"></i> SQLite aktivní</span><span id="db-size" class="eyebrow">— KB</span></div>
           <p><b class="db-file-name">${escapeHtml(loadedDatabaseName)}</b><br>Otevřeno jen pro tuto relaci.</p>
@@ -489,30 +551,15 @@ function renderShell() {
           <div class="title-block"><span class="eyebrow" id="section-kicker">Interaktivní přehled</span><h1 id="section-title">Kdo tvoří středisko?</h1></div>
           <div class="top-actions">
             <div class="search-wrap" role="search">${icons.search}<input id="search" class="search-input" type="search" placeholder="Hledat jméno, roli, štítek…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="map-search-suggestions" aria-expanded="false"><span class="search-key">/</span><div class="map-search-suggestions" id="map-search-suggestions" role="listbox" hidden></div></div>
-            <button class="theme-toggle" id="theme-toggle" type="button"></button>
           </div>
         </header>
         <section class="view map-view" id="map-view">
           <div class="map-control-dock">
-          <div class="map-toolbar" role="tablist" aria-label="Způsob rozmístění">
-            <button class="mode-button active" data-mode="network">Struktura</button>
-            <button class="mode-button" data-mode="field">Field</button>
-            <button class="mode-button" data-mode="age">Věk</button>
-            <span class="toolbar-divider"></span>
+          <div class="map-toolbar" role="toolbar" aria-label="Nástroje mapy">
             <button class="options-toggle" id="fit-map" type="button">Přizpůsobit</button>
-            <button class="toolbar-icon-button filter-toggle" id="filter-toggle" type="button" aria-label="Pokročilé filtry mapy" title="Filtry a barvy" aria-expanded="false">${icons.filter}<span id="filter-count" class="filter-count" hidden>0</span></button>
-            <button class="toolbar-icon-button" id="physics-toggle" type="button" aria-label="Nastavení fyziky mapy" title="Fyzika mapy" aria-expanded="false">${icons.physics}</button>
-            <button class="options-toggle" id="options-toggle" type="button" aria-expanded="false">Zobrazení</button>
+            <button class="toolbar-icon-button filter-toggle" id="filter-toggle" type="button" aria-label="Filtry a zobrazení mapy" title="Filtry a zobrazení" aria-expanded="false">${icons.filter}<span id="filter-count" class="filter-count" hidden>0</span></button>
           </div>
           <div class="filter-panel" id="filter-panel"></div>
-          <div class="physics-panel" id="physics-panel">
-            <div class="physics-head"><div><span class="eyebrow">Fyzika grafu</span><strong>Síly mapy</strong></div><button type="button" class="text-button" id="reset-physics">Výchozí</button></div>
-            <label class="physics-control"><span>Středová síla <output data-physics-output="center"></output></span><input type="range" min="0" max="1" step="0.01" value="${physicsSettings.center}" data-physics="center"></label>
-            <label class="physics-control"><span>Odpuzování <output data-physics-output="repel"></output></span><input type="range" min="0" max="20" step="0.5" value="${physicsSettings.repel}" data-physics="repel"></label>
-            <label class="physics-control"><span>Síla spojení <output data-physics-output="linkForce"></output></span><input type="range" min="0" max="1" step="0.01" value="${physicsSettings.linkForce}" data-physics="linkForce"></label>
-            <label class="physics-control"><span>Délka spojení <output data-physics-output="linkDistance"></output></span><input type="range" min="60" max="220" step="5" value="${physicsSettings.linkDistance}" data-physics="linkDistance"></label>
-            <p>Stejné čtyři základní ovladače jako v Obsidianu. Hierarchie používá násobky zvolené délky a změny se projeví okamžitě.</p>
-          </div>
           <div class="field-toolbar" id="field-toolbar" aria-label="Pole pro seskupení">
             <span>Field:</span>
             <button class="field-button" data-field="oddil">oddíly</button>
@@ -522,14 +569,6 @@ function renderShell() {
             <button class="field-button" data-field="category">kategorie</button>
             <button class="field-button" data-field="tags">štítky</button>
             <details class="field-tag-picker" id="field-tag-picker" hidden><summary>Vybrat štítky <span id="field-tag-count"></span></summary><div class="field-tag-menu" id="field-tag-menu"></div></details>
-          </div>
-          <div class="options-panel" id="options-panel">
-            <div class="options-title">Vrstvy mapy</div>
-            <label><input type="checkbox" data-option="primary" checked><span>Primární spojení</span></label>
-            <label><input type="checkbox" data-option="secondary" checked><span>Sekundární spojení</span></label>
-            <label><input type="checkbox" data-option="tags"><span>Štítky u lidí</span></label>
-            <label><input type="checkbox" data-option="categories" checked><span>Pole / kategorie</span></label>
-            <label><input type="checkbox" data-option="titles" checked><span>Názvy střediska, oddílů a družin</span></label>
           </div>
           </div>
           <div class="print-map-header" aria-hidden="true"><div><span>Kdo tvoří středisko?</span><strong id="print-map-title"></strong></div><div><b id="print-view-name"></b><small id="print-view-meta"></small></div></div>
@@ -2513,12 +2552,18 @@ function updateGraphFilterMeta() {
     + (graphFilters.showOrphans ? 0 : 1)
     + (graphColorMode === "group" ? 0 : 1)
     + (graphColorMode === "filter" ? colorRules.filter(rule => String(rule.value ?? "").trim()).length : 0)
-    + Object.values(connectionFilters).filter(value => !value).length + hiddenRelationshipTypes.length;
+    + Object.values(connectionFilters).filter(value => !value).length + hiddenRelationshipTypes.length
+    + (displayOptions.tags ? 1 : 0) + (displayOptions.categories ? 0 : 1) + (displayOptions.titles ? 0 : 1);
   const badge = document.querySelector("#filter-count");
   if (badge) {
     badge.textContent = count;
     badge.hidden = !count;
   }
+}
+
+function syncConnectionDisplayOptions() {
+  displayOptions.primary = connectionFilters.hierarchy || connectionFilters.assignment || connectionFilters.membership;
+  displayOptions.secondary = connectionFilters.relationship;
 }
 
 function unitFilterOptions() {
@@ -2544,7 +2589,7 @@ function renderGraphFilterPanel() {
   const panel = document.querySelector("#filter-panel");
   if (!panel) return;
   panel.innerHTML = `
-    <div class="filter-head"><div><span class="eyebrow">Graf</span><strong>Filtry a barvy</strong></div><button class="text-button" type="button" data-filter-action="reset">Výchozí</button></div>
+    <div class="filter-head"><div><span class="eyebrow">Graf</span><strong>Filtry, vrstvy a barvy</strong></div><button class="text-button" type="button" data-filter-action="reset">Výchozí</button></div>
     <section class="filter-section">
       <div class="filter-section-head"><strong>Výřez struktury</strong><span>místní graf</span></div>
       <label class="filter-field"><span>Zobrazit pouze</span><select data-filter-unit>${unitFilterOptions()}</select></label>
@@ -2554,9 +2599,14 @@ function renderGraphFilterPanel() {
       <div class="filter-section-head"><strong>Filtrační dotaz</strong><span>jako v Obsidianu</span></div>
       <label class="filter-query"><span class="filter-query-icon">${icons.search}</span><input data-filter-query value="${escapeHtml(graphFilters.query || "")}" placeholder='např. role:vedoucí -město:Praha'></label>
       <p class="filter-query-help">Slova se kombinují jako „a“. Použijte <code>OR</code>, <code>-výraz</code>, přesnou frázi v uvozovkách nebo <code>štítek:</code>, <code>jednotka:</code>, <code>role:</code>, <code>město:</code>, <code>kategorie:</code> a <code>věk:&gt;=18</code>.</p>
-      <div class="filter-toggle-row">
-        <label class="filter-checkbox"><input type="checkbox" data-filter-show-tags${displayOptions.tags ? " checked" : ""}><span>Zobrazit štítky</span></label>
-        <label class="filter-checkbox"><input type="checkbox" data-filter-orphans${graphFilters.showOrphans ? " checked" : ""}><span>Zobrazit lidi bez spojení</span></label>
+      <label class="filter-checkbox"><input type="checkbox" data-filter-orphans${graphFilters.showOrphans ? " checked" : ""}><span>Zobrazit lidi bez spojení</span></label>
+    </section>
+    <section class="filter-section">
+      <div class="filter-section-head"><strong>Vrstvy mapy</strong><span>viditelné prvky</span></div>
+      <div class="connection-filter-grid display-filter-grid">
+        <label><input type="checkbox" data-display-option="tags"${displayOptions.tags ? " checked" : ""}><span>Štítky u lidí</span></label>
+        <label><input type="checkbox" data-display-option="categories"${displayOptions.categories ? " checked" : ""}><span>Pole a kategorie</span></label>
+        <label><input type="checkbox" data-display-option="titles"${displayOptions.titles ? " checked" : ""}><span>Názvy jednotek</span></label>
       </div>
     </section>
     <section class="filter-section">
@@ -2695,7 +2745,7 @@ function updateMode(mode, animate = true) {
     activeFieldShapes = [];
     hideFieldSectionInfo();
   }
-  document.querySelectorAll(".mode-button").forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+  syncPrimaryNavigation();
   const width = document.querySelector("#map-view").clientWidth || 1000;
   const height = document.querySelector("#map-view").clientHeight || 650;
   zoneLayer.selectAll("*").remove();
@@ -4272,7 +4322,8 @@ function updateModeV2(mode, animate = true) {
     hideFieldSectionInfo();
   }
   svg.attr("data-mode", mode).attr("data-field-dimension", mode === "field" ? fieldDimension : null);
-  document.querySelectorAll(".mode-button").forEach(button => button.classList.toggle("active", button.dataset.mode === mode));
+  syncPrimaryNavigation();
+  syncSectionHeader();
   document.querySelector("#field-toolbar").classList.toggle("visible", mode === "field");
   const mapHint = document.querySelector(".map-hint");
   if (mapHint) mapHint.textContent = mode === "field" && fieldDimension === "oddil"
@@ -4702,17 +4753,44 @@ function applySearch(zoomDelay = 180) {
   scheduleMapSearchZoom(q, zoomDelay);
 }
 
+function syncPrimaryNavigation() {
+  document.querySelectorAll(".nav-button").forEach(button => {
+    const active = button.dataset.section === "sql"
+      ? activeSection === "sql"
+      : activeSection === "map" && button.dataset.viewMode === currentMode;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function syncSectionHeader() {
+  const kicker = document.querySelector("#section-kicker");
+  const title = document.querySelector("#section-title");
+  if (!kicker || !title) return;
+  if (activeSection === "sql") {
+    kicker.textContent = "SQLite databáze";
+    title.textContent = "Ptejte se dat";
+    return;
+  }
+  const headings = {
+    network: ["Struktura", "Kdo tvoří středisko?"],
+    field: ["Field", "Pole a jejich průniky"],
+    age: ["Věk", "Věkové rozložení"]
+  };
+  [kicker.textContent, title.textContent] = headings[currentMode] || headings.network;
+}
+
 function showSection(section) {
   if (section !== "map" && section !== "sql") section = "map";
   activeSection = section;
-  document.querySelectorAll(".nav-button").forEach(b => b.classList.toggle("active", b.dataset.section === section));
+  syncPrimaryNavigation();
   const isMap = section === "map";
   document.querySelector("#map-view").style.display = isMap ? "block" : "none";
   document.querySelector("#edit-view").style.display = "none";
   document.querySelector("#sql-view").style.display = section === "sql" ? "block" : "none";
   document.querySelector("#search").closest(".search-wrap").style.display = isMap ? "block" : "none";
-  document.querySelector("#section-kicker").textContent = isMap ? "Interaktivní přehled" : "SQLite databáze";
-  document.querySelector("#section-title").textContent = isMap ? "Kdo tvoří středisko?" : "Ptejte se dat";
+  syncSectionHeader();
   if (!isMap) {
     simulation?.stop();
     hideMapSearchSuggestions();
@@ -5939,7 +6017,7 @@ function mapExportFilename(extension) {
 }
 
 function closeMapControlPanels() {
-  ["filter", "physics", "options", "export"].forEach(name => {
+  ["filter", "export"].forEach(name => {
     document.querySelector(`#${name}-panel`)?.classList.remove("open");
     document.querySelector(`#${name}-toggle`)?.setAttribute("aria-expanded", "false");
   });
@@ -6101,39 +6179,40 @@ function showToast(message) {
 
 function bindEvents() {
   syncThemeControl();
-  document.querySelector("#theme-toggle").addEventListener("click", () => {
-    const next = {system: "light", light: "dark", dark: "system"};
-    setThemePreference(next[themePreference]);
+  syncAppSettingsControls();
+  document.querySelector("#app-theme-select").addEventListener("change", event => setThemePreference(event.target.value));
+  document.querySelector("#app-text-size").addEventListener("input", event => {
+    updateAppSetting("textScale", +event.target.value);
   });
-  document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => showSection(b.dataset.section)));
-  document.querySelectorAll(".mode-button").forEach(button => button.addEventListener("click", () => {
-    updateModeV2(button.dataset.mode);
+  document.querySelector("#app-background-color").addEventListener("input", event => {
+    updateAppSetting("mapBackground", event.target.value);
+  });
+  document.querySelector("#reset-app-background").addEventListener("click", () => updateAppSetting("mapBackground", ""));
+  document.querySelector("#app-show-hints").addEventListener("change", event => {
+    updateAppSetting("showHints", event.target.checked);
+  });
+  document.querySelector("#reset-app-settings").addEventListener("click", () => {
+    appSettings = {...DEFAULT_APP_SETTINGS};
+    persistAppSettings();
+    setThemePreference("system");
+    applyAppSettings();
+    showToast("Vzhled aplikace byl obnoven.");
+  });
+  document.querySelector("#app-settings").addEventListener("click", event => event.stopPropagation());
+  document.querySelectorAll(".nav-button").forEach(button => button.addEventListener("click", () => {
+    if (button.dataset.section === "sql") return showSection("sql");
+    showSection("map");
+    updateModeV2(button.dataset.viewMode);
     clearTimeout(graphFitTimer);
     graphFitTimer = setTimeout(() => fitMapToStructure(true), 700);
   }));
   document.querySelector("#fit-map").addEventListener("click", () => fitMapToStructure(true));
   document.querySelector("#filter-toggle").addEventListener("click", event => {
     event.stopPropagation();
-    document.querySelector("#options-panel").classList.remove("open");
-    document.querySelector("#options-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#physics-panel").classList.remove("open");
-    document.querySelector("#physics-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#export-panel")?.classList.remove("open");
-    document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
     const panel = document.querySelector("#filter-panel");
-    const open = panel.classList.toggle("open");
-    event.currentTarget.setAttribute("aria-expanded", String(open));
-  });
-  document.querySelector("#physics-toggle").addEventListener("click", event => {
-    event.stopPropagation();
-    document.querySelector("#filter-panel").classList.remove("open");
-    document.querySelector("#filter-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#options-panel").classList.remove("open");
-    document.querySelector("#options-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#export-panel")?.classList.remove("open");
-    document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
-    const panel = document.querySelector("#physics-panel");
-    const open = panel.classList.toggle("open");
+    const open = !panel.classList.contains("open");
+    closeMapControlPanels();
+    panel.classList.toggle("open", open);
     event.currentTarget.setAttribute("aria-expanded", String(open));
   });
   document.querySelectorAll(".field-button").forEach(button => button.addEventListener("click", () => {
@@ -6178,20 +6257,6 @@ function bindEvents() {
     updateFieldTagPickerCount();
     updateModeV2("field");
   });
-  document.querySelector("#options-toggle").addEventListener("click", event => {
-    event.stopPropagation();
-    document.querySelector("#filter-panel").classList.remove("open");
-    document.querySelector("#filter-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#physics-panel").classList.remove("open");
-    document.querySelector("#physics-toggle").setAttribute("aria-expanded", "false");
-    document.querySelector("#export-panel")?.classList.remove("open");
-    document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
-    const panel = document.querySelector("#options-panel");
-    const open = panel.classList.toggle("open");
-    event.currentTarget.setAttribute("aria-expanded", String(open));
-  });
-  document.querySelector("#options-panel").addEventListener("click", event => event.stopPropagation());
-  document.querySelector("#physics-panel").addEventListener("click", event => event.stopPropagation());
   document.querySelector("#export-toggle")?.addEventListener("click", event => {
     event.stopPropagation();
     const panel = document.querySelector("#export-panel");
@@ -6227,8 +6292,9 @@ function bindEvents() {
       colorRules = [];
       graphColorMode = "group";
       displayOptions.tags = false;
-      const tagsOption = document.querySelector('[data-option="tags"]');
-      if (tagsOption) tagsOption.checked = false;
+      displayOptions.categories = true;
+      displayOptions.titles = true;
+      syncConnectionDisplayOptions();
       renderGraphFilterPanel();
       scheduleGraphFilterUpdate();
       showToast("Filtry mapy byly vráceny na výchozí nastavení.");
@@ -6265,17 +6331,16 @@ function bindEvents() {
     }
     else if (event.target.matches("[data-filter-descendants]")) graphFilters.includeDescendants = event.target.checked;
     else if (event.target.matches("[data-filter-orphans]")) graphFilters.showOrphans = event.target.checked;
-    else if (event.target.matches("[data-filter-show-tags]")) {
-      displayOptions.tags = event.target.checked;
-      const tagsOption = document.querySelector('[data-option="tags"]');
-      if (tagsOption) tagsOption.checked = event.target.checked;
-    }
+    else if (event.target.matches("[data-display-option]")) displayOptions[event.target.dataset.displayOption] = event.target.checked;
     else if (event.target.matches("[data-filter-match]")) graphFilters.match = event.target.value;
     else if (event.target.matches("[data-color-mode]")) {
       graphColorMode = event.target.value;
       renderGraphFilterPanel();
     }
-    else if (event.target.matches("[data-connection-filter]")) connectionFilters[event.target.dataset.connectionFilter] = event.target.checked;
+    else if (event.target.matches("[data-connection-filter]")) {
+      connectionFilters[event.target.dataset.connectionFilter] = event.target.checked;
+      syncConnectionDisplayOptions();
+    }
     else if (event.target.matches("[data-relationship-type]")) {
       const type = event.target.dataset.relationshipType;
       hiddenRelationshipTypes = event.target.checked ? hiddenRelationshipTypes.filter(item => item !== type) : [...new Set([...hiddenRelationshipTypes, type])];
@@ -6296,28 +6361,6 @@ function bindEvents() {
     else return;
     scheduleGraphFilterUpdate();
   });
-  document.querySelectorAll("[data-physics]").forEach(input => input.addEventListener("input", () => {
-    physicsSettings[input.dataset.physics] = +input.value;
-    updatePhysicsOutput(input.dataset.physics);
-    schedulePhysicsUpdate();
-  }));
-  document.querySelector("#reset-physics").addEventListener("click", () => {
-    physicsSettings = {...DEFAULT_PHYSICS};
-    document.querySelectorAll("[data-physics]").forEach(input => {
-      input.value = physicsSettings[input.dataset.physics];
-      updatePhysicsOutput(input.dataset.physics);
-    });
-    schedulePhysicsUpdate();
-    showToast("Fyzika mapy byla vrácena na výchozí hodnoty.");
-  });
-  document.querySelectorAll("[data-option]").forEach(input => input.addEventListener("change", () => {
-    displayOptions[input.dataset.option] = input.checked;
-    if (input.dataset.option === "tags") {
-      const filterTags = document.querySelector("[data-filter-show-tags]");
-      if (filterTags) filterTags.checked = input.checked;
-    }
-    updateModeV2(currentMode);
-  }));
   const editDashboard = document.querySelector("#edit-dashboard");
   editDashboard.addEventListener("submit", handleEditorSubmit);
   editDashboard.addEventListener("click", handleEditorClick);
@@ -6479,14 +6522,11 @@ function bindEvents() {
     hideUnitActionPopover();
     closeExpandedPersonInfo();
     if (!event.target.closest?.(".search-wrap")) hideMapSearchSuggestions();
-    document.querySelector("#options-panel")?.classList.remove("open");
-    document.querySelector("#options-toggle")?.setAttribute("aria-expanded", "false");
-    document.querySelector("#physics-panel")?.classList.remove("open");
-    document.querySelector("#physics-toggle")?.setAttribute("aria-expanded", "false");
     document.querySelector("#filter-panel")?.classList.remove("open");
     document.querySelector("#filter-toggle")?.setAttribute("aria-expanded", "false");
     document.querySelector("#export-panel")?.classList.remove("open");
     document.querySelector("#export-toggle")?.setAttribute("aria-expanded", "false");
+    if (!event.target.closest?.("#app-settings")) document.querySelector("#app-settings")?.removeAttribute("open");
   });
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
@@ -6495,6 +6535,8 @@ function bindEvents() {
       else if (document.querySelector("#spreadsheet-modal")?.classList.contains("open")) closeSpreadsheetReview();
       else if (document.querySelector("#person-modal")?.classList.contains("open")) closePersonModal();
       else {
+        document.querySelector("#app-settings")?.removeAttribute("open");
+        closeMapControlPanels();
         hideFieldSectionInfo();
         clearOddilReachHighlight();
         hideUnitActionPopover();
