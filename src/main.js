@@ -254,6 +254,8 @@ const colorPaletteEntriesCache = new Map();
 let exactColorRuleIndex = null;
 let activeFieldRegions = [];
 let activeFieldShapes = [];
+let activeFieldSectionPersonIds = [];
+let activeFieldSectionLabel = "";
 let hoveredOddilReachName = null;
 let pinnedOddilReachName = null;
 let selectedUnitActionId = null;
@@ -2358,6 +2360,47 @@ function rectangularFieldLayout(width, height) {
       });
     });
   }
+
+  // The Venn solver intentionally starts with generous geometry so every
+  // populated intersection can be found. Once all people have valid targets,
+  // contract each rectangle around its actual members. Shared people remain
+  // inside every set they belong to, so real overlaps are preserved while
+  // unused outer space and empty intersections disappear.
+  fields.forEach(field => {
+    const memberBounds = [...field.members].map(personId => {
+      const point = targets.get(personId);
+      const person = peopleById.get(personId);
+      if (!point || !person) return null;
+      const box = nodeCollisionBox(person);
+      return {
+        minX: point[0] - box.halfWidth,
+        maxX: point[0] + box.halfWidth,
+        minY: point[1] - box.halfHeight,
+        maxY: point[1] + box.halfHeight
+      };
+    }).filter(Boolean);
+    if (!memberBounds.length) return;
+    const contentMinX = d3.min(memberBounds, bounds => bounds.minX);
+    const contentMaxX = d3.max(memberBounds, bounds => bounds.maxX);
+    const contentMinY = d3.min(memberBounds, bounds => bounds.minY);
+    const contentMaxY = d3.max(memberBounds, bounds => bounds.maxY);
+    const fittedX = (contentMinX + contentMaxX) / 2;
+    const fittedY = (contentMinY + contentMaxY) / 2;
+    const paddingX = compactNodeLayout ? 30 : 24;
+    const paddingY = compactNodeLayout ? 32 : 26;
+    const fittedHalfWidth = Math.max(compactNodeLayout ? 58 : 78, (contentMaxX - contentMinX) / 2 + paddingX);
+    const fittedHalfHeight = Math.max(compactNodeLayout ? 52 : 48, (contentMaxY - contentMinY) / 2 + paddingY);
+    const rectangle = field.rectangle;
+    if (fittedHalfWidth < rectangle.halfWidth * .96) {
+      rectangle.x = fittedX;
+      rectangle.halfWidth = fittedHalfWidth;
+    }
+    if (fittedHalfHeight < rectangle.halfHeight * .96) {
+      rectangle.y = fittedY;
+      rectangle.halfHeight = fittedHalfHeight;
+    }
+    rectangle.radius = Math.max(18, Math.min(34, rectangle.halfWidth * .22, rectangle.halfHeight * .3));
+  });
   syncFieldGeometry();
 
   const regions = zones.filter(zone => zone.valid).map(zone => ({
@@ -4162,6 +4205,8 @@ function addAdaptiveFieldTitles(zone, viewportWidth, fields) {
 function hideFieldSectionInfo() {
   const popover = document.querySelector("#field-section-popover");
   if (popover) popover.hidden = true;
+  activeFieldSectionPersonIds = [];
+  activeFieldSectionLabel = "";
 }
 
 function graphPersonId(endpoint) {
@@ -4605,7 +4650,23 @@ function showFieldSectionInfo(event, fallbackField) {
   const title = fieldDimension === "tags"
     ? (covering.length > 1 ? "Překryv štítků" : "Štítek")
     : (covering.length > 1 ? "Překryv polí" : "Pole");
-  popover.innerHTML = `<span data-map-panel-drag>${title}</span><div>${covering.map(field => `<b style="--section-color:${escapeHtml(field.color)}">${fieldDimension === "tags" ? "#" : ""}${escapeHtml(field.name)}</b>`).join("")}</div>`;
+  const coveringNames = covering.map(field => field.name).sort((a, b) => a.localeCompare(b, "cs"));
+  const exactNameKey = coveringNames.map(normalizedValue).join("\u0000");
+  const regionIds = exactRegion?.members instanceof Set
+    ? [...exactRegion.members]
+    : graphPeople.filter(person => {
+      const names = (displayOptions.categories ? fieldValues(person) : ["Všichni"])
+        .sort((a, b) => a.localeCompare(b, "cs"));
+      return names.map(normalizedValue).join("\u0000") === exactNameKey;
+    }).map(person => person.id);
+  const visibleIds = new Set(graphPeople.map(person => person.id));
+  activeFieldSectionPersonIds = [...new Set(regionIds.map(Number).filter(id => Number.isFinite(id) && visibleIds.has(id)))];
+  activeFieldSectionLabel = coveringNames.map(name => `${fieldDimension === "tags" ? "#" : ""}${name}`).join(" ∩ ");
+  const peopleCount = activeFieldSectionPersonIds.length;
+  popover.innerHTML = `<span data-map-panel-drag>${title}</span>
+    <div class="field-section-properties">${covering.map(field => `<b style="--section-color:${escapeHtml(field.color)}">${fieldDimension === "tags" ? "#" : ""}${escapeHtml(field.name)}</b>`).join("")}</div>
+    <small class="field-section-count">${peopleCount} ${peopleCount === 1 ? "člověk" : peopleCount > 1 && peopleCount < 5 ? "lidé" : "lidí"} v této oblasti</small>
+    <button type="button" class="primary-button field-section-sql" data-field-section-action="sql"${peopleCount ? "" : " disabled"}>Zobrazit v SQL laboratoři →</button>`;
   popover.hidden = false;
   const bounds = view.getBoundingClientRect();
   const wantedLeft = event.clientX - bounds.left + 14;
@@ -4620,7 +4681,7 @@ function updateAdaptiveTitleVisibility(scale = savedZoom.k) {
   teamLayer.selectAll("g.level-1").style("opacity", 1);
   teamLayer.selectAll("g.level-0").style("opacity", 1);
   const showCompactLabels = showsPersonGraphLabels();
-  const personLabelOpacity = !showCompactLabels || scale <= .52 ? 0 : scale >= .78 ? 1 : (scale - .52) / .26;
+  const personLabelOpacity = currentMode === "field" || !showCompactLabels || scale <= .52 ? 0 : scale >= .78 ? 1 : (scale - .52) / .26;
   nodeLayer?.selectAll(".person-graph-label").style("opacity", personLabelOpacity);
 }
 
@@ -6353,6 +6414,46 @@ function openUnitPeopleInSql(teamId) {
   hideUnitActionPopover();
 }
 
+function buildFieldSectionPeopleSql(personIds) {
+  const ids = [...new Set(personIds.map(Number).filter(Number.isFinite))].map(Math.trunc);
+  if (!ids.length) return "";
+  return `SELECT
+  p.name AS jmeno,
+  p.nickname AS prezdivka,
+  p.role AS role,
+  p.birth_date AS datum_narozeni,
+  p.age AS vek,
+  c.name AS kategorie,
+  p.registration_category AS registracni_kategorie,
+  p.city AS mesto,
+  p.email AS email,
+  p.notes AS poznamka,
+  ot.name AS primarni_jednotka,
+  (SELECT GROUP_CONCAT(unit_name, ', ') FROM (SELECT u.name AS unit_name FROM people_teams pu JOIN teams u ON u.id = pu.team_id WHERE pu.person_id = p.id ORDER BY u.level, u.name)) AS jednotky,
+  (SELECT GROUP_CONCAT(tag_name, ', ') FROM (SELECT tg.name AS tag_name FROM people_tags ptag JOIN tags tg ON tg.id = ptag.tag_id WHERE ptag.person_id = p.id ORDER BY tg.name)) AS stitky
+FROM people p
+LEFT JOIN categories c ON c.id = p.category_id
+LEFT JOIN teams ot ON ot.id = p.org_team_id
+WHERE p.id IN (${ids.join(", ")})
+ORDER BY p.name COLLATE NOCASE, p.id;`;
+}
+
+function openFieldSectionPeopleInSql() {
+  const personIds = [...activeFieldSectionPersonIds];
+  const sectionLabel = activeFieldSectionLabel;
+  const query = buildFieldSectionPeopleSql(personIds);
+  if (!query) return;
+  showSection("sql");
+  const queryInput = document.querySelector("#sql-query");
+  if (queryInput) queryInput.value = query;
+  const builder = document.querySelector("#sql-builder");
+  if (builder) builder.open = false;
+  const summary = document.querySelector("#sql-builder-summary");
+  if (summary) summary.textContent = `Field · ${sectionLabel} · ${personIds.length} ${personIds.length === 1 ? "člověk" : "lidí"}`;
+  runSelect();
+  hideFieldSectionInfo();
+}
+
 function runSelect() {
   const sql = document.querySelector("#sql-query").value.trim();
   const output = document.querySelector("#result-wrap");
@@ -7424,6 +7525,10 @@ function bindEvents() {
     const action = event.target.closest("[data-unit-action]")?.dataset.unitAction;
     if (action === "close") hideUnitActionPopover();
     if (action === "sql") openUnitPeopleInSql(+event.target.closest("[data-unit-id]").dataset.unitId);
+  });
+  document.querySelector("#field-section-popover").addEventListener("click", event => {
+    event.stopPropagation();
+    if (event.target.closest("[data-field-section-action='sql']")) openFieldSectionPeopleInSql();
   });
   document.querySelector("#sql-builder").addEventListener("change", syncSqlBuilderUi);
   document.querySelector("#sql-builder").addEventListener("input", syncSqlBuilderUi);
