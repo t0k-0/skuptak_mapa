@@ -240,11 +240,13 @@ const DEFAULT_GRAPH_FILTERS = {unitId: "", includeDescendants: true, query: "", 
 let graphFilters = {...DEFAULT_GRAPH_FILTERS, rules: []};
 let colorRules = [];
 let graphColorMode = "group";
+let colorAttributeField = "role";
 let graphPeople = [];
 let graphTeams = [];
 let filterSuggestionItems = [];
 let filterSuggestionIndex = -1;
 let filterSuggestionInput = null;
+const openFilterSections = new Set();
 let activeFieldRegions = [];
 let activeFieldShapes = [];
 let hoveredOddilReachName = null;
@@ -305,8 +307,10 @@ function loadWorkspaceState() {
       graphFilters.match = saved.graphFilters.match === "any" ? "any" : "all";
       graphFilters.rules = Array.isArray(saved.graphFilters.rules) ? saved.graphFilters.rules.slice(0, 30) : [];
     }
-    if (Array.isArray(saved.colorRules)) colorRules = saved.colorRules.slice(0, 30);
+    if (Array.isArray(saved.colorRules)) colorRules = saved.colorRules.slice(0, 1000);
     if (["category", "tag", "group", "filter"].includes(saved.graphColorMode)) graphColorMode = saved.graphColorMode;
+    if (FILTER_ATTRIBUTES.some(([field]) => field === saved.colorAttributeField)) colorAttributeField = saved.colorAttributeField;
+    else if (colorRules[0]?.field) colorAttributeField = colorRules[0].field;
     if (saved.positions && typeof saved.positions === "object") {
       ["network", "field", "age"].forEach(mode => { if (saved.positions[mode] && typeof saved.positions[mode] === "object") positionCache[mode] = saved.positions[mode]; });
     }
@@ -332,7 +336,7 @@ function captureGraphPositions(mode = currentMode) {
 function persistWorkspaceState(capture = false) {
   if (capture) captureGraphPositions();
   try {
-    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, fieldTagSort, fieldTagOnlyUsed, fieldSidebarExpanded, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
+    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, fieldTagSort, fieldTagOnlyUsed, fieldSidebarExpanded, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, colorAttributeField, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
   } catch (_) {}
 }
 
@@ -582,6 +586,7 @@ function renderShell() {
               <button type="button" class="field-subnav-button" data-field="city">Města</button>
               <button type="button" class="field-subnav-button" data-field="category">Kategorie</button>
               <button type="button" class="field-subnav-button" data-field="tags">Štítky</button>
+              <details class="field-tag-picker" id="field-tag-picker" hidden><summary>Vybrat štítky <span id="field-tag-count"></span></summary><div class="field-tag-menu" id="field-tag-menu"></div></details>
             </div>
           </div>
           <button class="nav-button" data-view-mode="age">${icons.age}<span>Věk</span></button>
@@ -630,16 +635,6 @@ function renderShell() {
             <button class="toolbar-icon-button filter-toggle" id="filter-toggle" type="button" aria-label="Filtry a zobrazení mapy" title="Filtry a zobrazení" aria-expanded="false">${icons.filter}<span id="filter-count" class="filter-count" hidden>0</span></button>
           </div>
           <div class="filter-panel" id="filter-panel"></div>
-          <div class="field-toolbar" id="field-toolbar" aria-label="Pole pro seskupení">
-            <span>Field:</span>
-            <button class="field-button" data-field="oddil">oddíly</button>
-            <button class="field-button active" data-field="druzina">družiny</button>
-            <button class="field-button" data-field="role">role</button>
-            <button class="field-button" data-field="city">město</button>
-            <button class="field-button" data-field="category">kategorie</button>
-            <button class="field-button" data-field="tags">štítky</button>
-            <details class="field-tag-picker" id="field-tag-picker" hidden><summary>Vybrat štítky <span id="field-tag-count"></span></summary><div class="field-tag-menu" id="field-tag-menu"></div></details>
-          </div>
           </div>
           <div class="print-map-header" aria-hidden="true"><div><span>Kdo tvoří středisko?</span><strong id="print-map-title"></strong></div><div><b id="print-view-name"></b><small id="print-view-meta"></small></div></div>
           <div class="map-meta"><div class="stat"><strong id="people-count">0</strong><span>lidí</span></div><div class="stat"><strong id="team-count">0</strong><span>jednotek</span></div></div>
@@ -2375,14 +2370,14 @@ const COLOR_MODES = [
   ["category", "Podle kategorie"],
   ["tag", "Podle štítku"],
   ["group", "Podle skupiny"],
-  ["filter", "Podle atributu"]
+  ["filter", "Vlastní atribut"]
 ];
 
 const COLOR_MODE_HINTS = {
-  category: "Použije uloženou barvu kategorie každého člověka.",
-  tag: "Použije stabilní barvu prvního štítku v abecedním pořadí.",
-  group: "Použije barvu primární jednotky člověka.",
-  filter: "Vyberte atribut, podmínku a barvu. První odpovídající pravidlo vyhrává."
+  category: "Nastavte vlastní barvu každé kategorie.",
+  tag: "Nastavte vlastní barvu každého štítku.",
+  group: "Nastavte vlastní barvu každé primární jednotky.",
+  filter: "Vyberte libovolný atribut a upravte barvu každé jeho hodnoty."
 };
 
 function normalizedValue(value) {
@@ -2579,17 +2574,84 @@ function stableAttributeColor(value) {
     hash = Math.imul(hash, 16777619);
   }
   const hue = Math.abs(hash) % 360;
-  return `hsl(${hue} 58% 44%)`;
+  return hslToHex(hue, 58, 44);
+}
+
+function hslToHex(hue, saturation, lightness) {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
+  const segment = ((hue % 360) + 360) % 360 / 60;
+  const x = chroma * (1 - Math.abs(segment % 2 - 1));
+  const [red, green, blue] = segment < 1 ? [chroma, x, 0]
+    : segment < 2 ? [x, chroma, 0]
+      : segment < 3 ? [0, chroma, x]
+        : segment < 4 ? [0, x, chroma]
+          : segment < 5 ? [x, 0, chroma]
+            : [chroma, 0, x];
+  const match = l - chroma / 2;
+  return `#${[red, green, blue].map(channel => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function activeColorAttribute() {
+  if (graphColorMode === "category") return "category";
+  if (graphColorMode === "tag") return "tags";
+  if (graphColorMode === "group") return "unit";
+  return colorAttributeField;
+}
+
+function primaryColorAttributeValue(person, field = activeColorAttribute()) {
+  if (field === "unit") return teamById(graphHomeTeamId(person))?.name || "";
+  const source = personAttribute(person, field);
+  if (!Array.isArray(source)) return String(source ?? "").trim();
+  return [...source].map(value => String(value ?? "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b, "cs", {sensitivity: "base"}))[0] || "";
+}
+
+function exactColorRule(field, value) {
+  const empty = !String(value ?? "").trim();
+  return colorRules.find(rule => rule.field === field && (empty
+    ? rule.operator === "empty"
+    : (rule.operator || "equals") === "equals" && normalizedValue(rule.value) === normalizedValue(value)));
+}
+
+function defaultAttributeValueColor(field, value) {
+  if (!String(value ?? "").trim()) return "#8c9089";
+  if (field === "category") return categoriesData.find(category => normalizedValue(category.name) === normalizedValue(value))?.color || stableAttributeColor(value);
+  if (field === "unit") {
+    const team = teams.find(item => normalizedValue(item.name) === normalizedValue(value));
+    if (team) return hslToHex(Math.round((team.id * 137.508 + (team.parent_id || 0) * 19) % 360), 58, 44);
+  }
+  return stableAttributeColor(value);
+}
+
+function colorInputValue(color, fallback) {
+  const value = String(color || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(value)) return value;
+  if (/^#[0-9a-f]{3}$/i.test(value)) return `#${[...value.slice(1)].map(character => character.repeat(2)).join("")}`;
+  return fallback;
+}
+
+function colorPaletteEntries(field = activeColorAttribute()) {
+  const entries = filterAttributeValues(field).map(value => ({
+    value,
+    label: value,
+    count: people.filter(person => normalizedValue(primaryColorAttributeValue(person, field)) === normalizedValue(value)).length,
+    operator: "equals"
+  }));
+  const missingCount = people.filter(person => !primaryColorAttributeValue(person, field)).length;
+  if (missingCount) entries.push({value: "", label: "Bez hodnoty", count: missingCount, operator: "empty"});
+  return entries;
 }
 
 function selectedPersonColor(person) {
-  if (graphColorMode === "category") return person.color || stableAttributeColor(person.category);
-  if (graphColorMode === "tag") {
-    const tag = [...(person.tagsArray || [])].sort((a, b) => a.localeCompare(b, "cs"))[0];
-    return stableAttributeColor(tag);
-  }
-  if (graphColorMode === "filter") return colorRules.find(rule => colorRuleMatchesPerson(person, rule))?.color || "#8c9089";
-  return unitClusterColor(teamById(graphHomeTeamId(person)));
+  const field = activeColorAttribute();
+  const value = primaryColorAttributeValue(person, field);
+  const custom = exactColorRule(field, value)?.color;
+  if (custom) return custom;
+  const legacyCustom = colorRules.find(rule => rule.field === field && colorRuleMatchesPerson(person, rule))?.color;
+  if (legacyCustom) return legacyCustom;
+  if (field === "category") return person.color || defaultAttributeValueColor(field, value);
+  return defaultAttributeValueColor(field, value);
 }
 
 function teamGraphColor(team) {
@@ -2601,7 +2663,7 @@ function unitClusterColor(team) {
   const custom = teamGraphColor(team);
   if (custom) return custom;
   const hue = Math.round((team.id * 137.508 + (team.parent_id || 0) * 19) % 360);
-  return `hsl(${hue} 58% 44%)`;
+  return hslToHex(hue, 58, 44);
 }
 
 function structureLinkColor(link) {
@@ -2623,7 +2685,7 @@ function updateGraphFilterMeta() {
     + (String(graphFilters.query || "").trim() ? 1 : 0)
     + (graphFilters.showOrphans ? 0 : 1)
     + (graphColorMode === "group" ? 0 : 1)
-    + (graphColorMode === "filter" ? colorRules.filter(rule => rule.operator === "empty" || String(rule.value ?? "").trim()).length : 0)
+    + colorRules.filter(rule => rule.field === activeColorAttribute() && (rule.operator === "empty" || (rule.operator || "equals") === "equals")).length
     + Object.values(connectionFilters).filter(value => !value).length + hiddenRelationshipTypes.length
     + (displayOptions.tags ? 1 : 0) + (displayOptions.categories ? 0 : 1) + (displayOptions.titles ? 0 : 1);
   const badge = document.querySelector("#filter-count");
@@ -2828,62 +2890,79 @@ function renderGraphFilterPanel() {
   const panel = document.querySelector("#filter-panel");
   if (!panel) return;
   const previousScrollTop = panel.scrollTop;
+  const paletteField = activeColorAttribute();
+  const paletteEntries = colorPaletteEntries(paletteField);
+  const paletteSummary = graphColorMode === "filter"
+    ? FILTER_ATTRIBUTES.find(([field]) => field === paletteField)?.[1] || "Atribut"
+    : COLOR_MODES.find(([value]) => value === graphColorMode)?.[1] || "";
   hideFilterSuggestions();
   panel.innerHTML = `
-    <div class="filter-head"><div><span class="eyebrow">Graf</span><strong>Filtry, vrstvy a barvy</strong></div><button class="text-button" type="button" data-filter-action="reset">Výchozí</button></div>
-    <section class="filter-section">
-      <div class="filter-section-head"><strong>Výřez struktury</strong><span>místní graf</span></div>
-      <label class="filter-field"><span>Zobrazit pouze</span><select data-filter-unit>${unitFilterOptions()}</select></label>
-      <label class="filter-checkbox filter-descendants"><input type="checkbox" data-filter-descendants${graphFilters.includeDescendants ? " checked" : ""}${graphFilters.unitId ? "" : " disabled"}><span>Zobrazit potomky</span></label>
-    </section>
-    <section class="filter-section">
+    <div class="filter-head"><div><span class="eyebrow">Graf</span><strong>Filtry</strong></div><button class="text-button" type="button" data-filter-action="reset">Výchozí</button></div>
+    <section class="filter-section filter-query-section">
       <div class="filter-section-head"><strong>Filtrační dotaz</strong><span>jako v Obsidianu</span></div>
       <div class="filter-query"><span class="filter-query-icon">${icons.search}</span><input data-filter-query value="${escapeHtml(graphFilters.query || "")}" placeholder="Začněte psát atribut nebo hodnotu…" aria-label="Filtrační dotaz" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="filter-query-suggestions"><span class="filter-suggestion-hint">↓ návrhy</span><div class="filter-suggestion-list" id="filter-query-suggestions" data-filter-suggestion-list role="listbox" hidden></div></div>
       <label class="filter-checkbox"><input type="checkbox" data-filter-orphans${graphFilters.showOrphans ? " checked" : ""}><span>Zobrazit lidi bez spojení</span></label>
     </section>
-    <section class="filter-section">
-      <div class="filter-section-head"><strong>Vrstvy mapy</strong><span>viditelné prvky</span></div>
-      <div class="connection-filter-grid display-filter-grid">
-        <label><input type="checkbox" data-display-option="tags"${displayOptions.tags ? " checked" : ""}><span>Štítky u lidí</span></label>
-        <label><input type="checkbox" data-display-option="categories"${displayOptions.categories ? " checked" : ""}><span>Pole a kategorie</span></label>
-        <label><input type="checkbox" data-display-option="titles"${displayOptions.titles ? " checked" : ""}><span>Názvy jednotek</span></label>
+    <details class="filter-section filter-collapsible" data-filter-section="scope"${openFilterSections.has("scope") ? " open" : ""}>
+      <summary class="filter-section-head"><strong>Výřez struktury</strong><span>${graphFilters.unitId ? "omezeno" : "všechny jednotky"}</span></summary>
+      <div class="filter-section-body">
+        <label class="filter-field"><span>Zobrazit pouze</span><select data-filter-unit>${unitFilterOptions()}</select></label>
+        <label class="filter-checkbox filter-descendants"><input type="checkbox" data-filter-descendants${graphFilters.includeDescendants ? " checked" : ""}${graphFilters.unitId ? "" : " disabled"}><span>Zobrazit potomky</span></label>
       </div>
-    </section>
-    <section class="filter-section">
-      <div class="filter-section-head"><strong>Spojení</strong><span>nezávislé vrstvy</span></div>
-      <div class="connection-filter-grid">
-        ${[["hierarchy", "Hierarchie jednotek"], ["assignment", "Primární přiřazení"], ["membership", "Další jednotky"], ["relationship", "Vztahy lidí"]].map(([key, label]) => `<label><input type="checkbox" data-connection-filter="${key}"${connectionFilters[key] ? " checked" : ""}><span>${label}</span></label>`).join("")}
+    </details>
+    <details class="filter-section filter-collapsible" data-filter-section="display"${openFilterSections.has("display") ? " open" : ""}>
+      <summary class="filter-section-head"><strong>Zobrazení</strong><span>prvky a spojení</span></summary>
+      <div class="filter-section-body">
+        <span class="filter-mini-label">Prvky mapy</span>
+        <div class="connection-filter-grid display-filter-grid">
+          <label><input type="checkbox" data-display-option="tags"${displayOptions.tags ? " checked" : ""}><span>Štítky u lidí</span></label>
+          <label><input type="checkbox" data-display-option="categories"${displayOptions.categories ? " checked" : ""}><span>Pole a kategorie</span></label>
+          <label><input type="checkbox" data-display-option="titles"${displayOptions.titles ? " checked" : ""}><span>Názvy jednotek</span></label>
+        </div>
+        <span class="filter-mini-label">Spojení</span>
+        <div class="connection-filter-grid">
+          ${[["hierarchy", "Hierarchie jednotek"], ["assignment", "Primární přiřazení"], ["membership", "Další jednotky"], ["relationship", "Vztahy lidí"]].map(([key, label]) => `<label><input type="checkbox" data-connection-filter="${key}"${connectionFilters[key] ? " checked" : ""}><span>${label}</span></label>`).join("")}
+        </div>
+        ${[...new Set(relationships.map(link => link.type || "bez typu"))].length ? `<div class="relationship-type-filter"><span>Typy vztahů</span><div>${[...new Set(relationships.map(link => link.type || "bez typu"))].sort((a, b) => a.localeCompare(b, "cs")).map(type => `<label><input type="checkbox" data-relationship-type="${escapeHtml(type)}"${hiddenRelationshipTypes.includes(type) ? "" : " checked"}><span>${escapeHtml(type)}</span></label>`).join("")}</div></div>` : ""}
       </div>
-      ${[...new Set(relationships.map(link => link.type || "bez typu"))].length ? `<div class="relationship-type-filter"><span>Typy vztahů</span><div>${[...new Set(relationships.map(link => link.type || "bez typu"))].sort((a, b) => a.localeCompare(b, "cs")).map(type => `<label><input type="checkbox" data-relationship-type="${escapeHtml(type)}"${hiddenRelationshipTypes.includes(type) ? "" : " checked"}><span>${escapeHtml(type)}</span></label>`).join("")}</div></div>` : ""}
-    </section>
-    <section class="filter-section">
-      <div class="filter-section-head"><strong>Atributy lidí</strong><select data-filter-match><option value="all"${graphFilters.match === "all" ? " selected" : ""}>splnit vše</option><option value="any"${graphFilters.match === "any" ? " selected" : ""}>splnit alespoň jeden</option></select></div>
-      <div class="filter-rule-list">
-        ${graphFilters.rules.length ? graphFilters.rules.map((rule, index) => `<div class="filter-rule">
-          <select data-filter-rule-field="${index}">${selectOptions(FILTER_ATTRIBUTES, rule.field)}</select>
-          <select data-filter-rule-operator="${index}">${selectOptions(FILTER_OPERATORS, rule.operator)}</select>
-          <span class="filter-value-wrap"><input data-filter-rule-value="${index}" value="${escapeHtml(rule.value || "")}" placeholder="hodnota" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"${rule.operator === "empty" ? " disabled" : ""}><div class="filter-suggestion-list" data-filter-suggestion-list role="listbox" hidden></div></span>
-          <button type="button" class="row-icon-button" data-filter-remove="${index}" aria-label="Odebrat filtr">×</button>
-        </div>`).join("") : '<p class="filter-empty">Zatím se zobrazují lidé se všemi atributy.</p>'}
+    </details>
+    <details class="filter-section filter-collapsible" data-filter-section="attributes"${openFilterSections.has("attributes") ? " open" : ""}>
+      <summary class="filter-section-head"><strong>Atributy lidí</strong><span>${graphFilters.rules.length} podmínek</span></summary>
+      <div class="filter-section-body">
+        <label class="filter-field"><span>Shoda</span><select data-filter-match><option value="all"${graphFilters.match === "all" ? " selected" : ""}>splnit vše</option><option value="any"${graphFilters.match === "any" ? " selected" : ""}>splnit alespoň jeden</option></select></label>
+        <div class="filter-rule-list">
+          ${graphFilters.rules.length ? graphFilters.rules.map((rule, index) => `<div class="filter-rule">
+            <select data-filter-rule-field="${index}">${selectOptions(FILTER_ATTRIBUTES, rule.field)}</select>
+            <select data-filter-rule-operator="${index}">${selectOptions(FILTER_OPERATORS, rule.operator)}</select>
+            <span class="filter-value-wrap"><input data-filter-rule-value="${index}" value="${escapeHtml(rule.value || "")}" placeholder="hodnota" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"${rule.operator === "empty" ? " disabled" : ""}><div class="filter-suggestion-list" data-filter-suggestion-list role="listbox" hidden></div></span>
+            <button type="button" class="row-icon-button" data-filter-remove="${index}" aria-label="Odebrat filtr">×</button>
+          </div>`).join("") : '<p class="filter-empty">Bez dalších podmínek.</p>'}
+        </div>
+        <button class="filter-add-button" type="button" data-filter-action="add-rule">+ Přidat podmínku</button>
       </div>
-      <button class="filter-add-button" type="button" data-filter-action="add-rule">+ Přidat podmínku</button>
-    </section>
-    <section class="filter-section color-filter-section">
-      <div class="filter-section-head"><strong>Barevné rozlišení</strong><span>barvy uzlů</span></div>
-      <label class="filter-field"><span>Barvit podle</span><select data-color-mode>${selectOptions(COLOR_MODES, graphColorMode)}</select></label>
-      <p class="color-mode-note">${COLOR_MODE_HINTS[graphColorMode]}</p>
-      ${graphColorMode === "filter" ? `<div class="color-rule-list">
-        ${colorRules.length ? colorRules.map((rule, index) => `<div class="color-rule">
-          <input type="color" value="${escapeHtml(rule.color || "#6ba29b")}" data-color-rule-color="${index}" aria-label="Barva skupiny">
-          <select data-color-rule-field="${index}" aria-label="Atribut pro barvu">${selectOptions(FILTER_ATTRIBUTES, rule.field)}</select>
-          <select data-color-rule-operator="${index}" aria-label="Podmínka pro barvu">${selectOptions(FILTER_OPERATORS, rule.operator || "equals")}</select>
-          <span class="filter-value-wrap"><input data-color-rule-value="${index}" value="${escapeHtml(rule.value || "")}" placeholder="hodnota" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"${rule.operator === "empty" ? " disabled" : ""}><div class="filter-suggestion-list" data-filter-suggestion-list role="listbox" hidden></div></span>
-          <span class="color-rule-order"><button type="button" data-color-move="${index}" data-direction="-1" aria-label="Posunout nahoru">↑</button><button type="button" data-color-move="${index}" data-direction="1" aria-label="Posunout dolů">↓</button></span>
-          <button type="button" class="row-icon-button" data-color-remove="${index}" aria-label="Odebrat barvu">×</button>
-        </div>`).join("") : '<p class="filter-empty">Přidejte pravidlo a obarvěte odpovídající lidi. Bez shody zůstanou neutrální.</p>'}
+    </details>
+    <details class="filter-section filter-collapsible" data-filter-section="colors"${openFilterSections.has("colors") ? " open" : ""}>
+      <summary class="filter-section-head"><strong>Barvy uzlů</strong><span>${escapeHtml(paletteSummary)}</span></summary>
+      <div class="filter-section-body">
+        <label class="filter-field"><span>Barvit podle</span><select data-color-mode>${selectOptions(COLOR_MODES, graphColorMode)}</select></label>
+        ${graphColorMode === "filter" ? `<label class="filter-field"><span>Atribut</span><select data-color-attribute-field>${selectOptions(FILTER_ATTRIBUTES, colorAttributeField)}</select></label>` : ""}
+        <p class="color-mode-note">${COLOR_MODE_HINTS[graphColorMode]}</p>
+        ${paletteEntries.length > 8 ? `<label class="color-palette-search">${icons.search}<input type="search" data-color-palette-search placeholder="Hledat hodnotu…" autocomplete="off" aria-label="Hledat hodnotu atributu"></label>` : ""}
+        <div class="color-palette-list">
+          ${paletteEntries.length ? paletteEntries.map(entry => {
+            const rule = exactColorRule(paletteField, entry.value);
+            const fallback = defaultAttributeValueColor(paletteField, entry.value);
+            const color = colorInputValue(rule?.color, fallback);
+            return `<div class="color-palette-row" data-color-palette-row data-search-value="${escapeHtml(normalizedFilterKey(entry.label))}">
+              <input type="color" value="${escapeHtml(color)}" data-color-palette-color data-color-field="${escapeHtml(paletteField)}" data-color-value="${escapeHtml(entry.value)}" data-color-operator="${entry.operator}" aria-label="Barva: ${escapeHtml(entry.label)}">
+              <span title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</span><small>${entry.count}</small>
+              <button type="button" data-color-palette-reset data-color-field="${escapeHtml(paletteField)}" data-color-value="${escapeHtml(entry.value)}" data-color-operator="${entry.operator}" aria-label="Obnovit automatickou barvu"${rule ? "" : " disabled"}>↺</button>
+            </div>`;
+          }).join("") : '<p class="filter-empty">Tento atribut nemá žádné hodnoty.</p>'}
+          <p class="filter-empty color-palette-empty" hidden>Žádná odpovídající hodnota.</p>
+        </div>
       </div>
-      <button class="filter-add-button" type="button" data-filter-action="add-color">+ Přidat barevné pravidlo</button>` : ""}
-    </section>`;
+    </details>`;
   panel.scrollTop = previousScrollTop;
   updateGraphFilterMeta();
 }
@@ -3294,7 +3373,7 @@ function restoreNetworkLayout(width, height) {
 }
 
 function usesCompactPeopleNodes(mode = currentMode) {
-  return mode === "network" || mode === "age" || (mode === "field" && fieldDimension === "oddil") || graphPeople.length > 48;
+  return mode === "network" || mode === "age" || (mode === "field" && fieldDimension === "oddil") || people.length > 48;
 }
 
 function showsPersonGraphLabels(mode = currentMode) {
@@ -4754,7 +4833,6 @@ function updateModeV2(mode, animate = true) {
   syncPrimaryNavigation();
   syncFieldDimensionControls();
   syncSectionHeader();
-  document.querySelector("#field-toolbar").classList.toggle("visible", mode === "field");
   const mapHint = document.querySelector(".map-hint");
   if (mapHint) mapHint.textContent = mode === "field" && fieldDimension === "oddil"
     ? "Najet na oddíl = ukázat dosah · kliknout = připnout · Esc = zavřít"
@@ -6764,6 +6842,7 @@ function bindEvents() {
   document.querySelector("#field-subnav-toggle")?.addEventListener("click", event => {
     event.stopPropagation();
     fieldSidebarExpanded = !fieldSidebarExpanded;
+    if (!fieldSidebarExpanded) document.querySelector("#field-tag-picker")?.removeAttribute("open");
     syncFieldSidebarExpansion();
     scheduleWorkspaceState();
   });
@@ -6869,11 +6948,28 @@ function bindEvents() {
     if (action === "xlsx") exportCurrentTableAsXlsx();
   });
   const filterPanel = document.querySelector("#filter-panel");
+  filterPanel.addEventListener("toggle", event => {
+    const section = event.target.closest?.("details[data-filter-section]");
+    if (!section || section !== event.target) return;
+    if (section.open) openFilterSections.add(section.dataset.filterSection);
+    else openFilterSections.delete(section.dataset.filterSection);
+  }, true);
   filterPanel.addEventListener("click", event => {
     event.stopPropagation();
     const suggestion = event.target.closest("[data-filter-suggestion]");
     if (suggestion) {
       applyFilterSuggestion(+suggestion.dataset.filterSuggestion);
+      return;
+    }
+    const paletteReset = event.target.closest("[data-color-palette-reset]");
+    if (paletteReset) {
+      const field = paletteReset.dataset.colorField;
+      const value = paletteReset.dataset.colorValue;
+      const operator = paletteReset.dataset.colorOperator || "equals";
+      const index = colorRules.findIndex(rule => rule.field === field && (rule.operator || "equals") === operator && (operator === "empty" || normalizedValue(rule.value) === normalizedValue(value)));
+      if (index >= 0) colorRules.splice(index, 1);
+      renderGraphFilterPanel();
+      scheduleGraphFilterUpdate();
       return;
     }
     const action = event.target.closest("[data-filter-action]")?.dataset.filterAction;
@@ -6893,6 +6989,7 @@ function bindEvents() {
       hiddenRelationshipTypes = [];
       colorRules = [];
       graphColorMode = "group";
+      colorAttributeField = "role";
       displayOptions.tags = false;
       displayOptions.categories = true;
       displayOptions.titles = true;
@@ -6939,6 +7036,10 @@ function bindEvents() {
       graphColorMode = event.target.value;
       renderGraphFilterPanel();
     }
+    else if (event.target.matches("[data-color-attribute-field]")) {
+      colorAttributeField = event.target.value;
+      renderGraphFilterPanel();
+    }
     else if (event.target.matches("[data-connection-filter]")) {
       connectionFilters[event.target.dataset.connectionFilter] = event.target.checked;
       syncConnectionDisplayOptions();
@@ -6971,6 +7072,31 @@ function bindEvents() {
     scheduleGraphFilterUpdate();
   });
   filterPanel.addEventListener("input", event => {
+    if (event.target.matches("[data-color-palette-search]")) {
+      const query = normalizedFilterKey(event.target.value);
+      let visible = 0;
+      filterPanel.querySelectorAll("[data-color-palette-row]").forEach(row => {
+        const show = !query || row.dataset.searchValue.includes(query);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      const empty = filterPanel.querySelector(".color-palette-empty");
+      if (empty) empty.hidden = visible > 0;
+      return;
+    }
+    if (event.target.matches("[data-color-palette-color]")) {
+      const field = event.target.dataset.colorField;
+      const value = event.target.dataset.colorValue;
+      const operator = event.target.dataset.colorOperator || "equals";
+      let rule = colorRules.find(item => item.field === field && (item.operator || "equals") === operator && (operator === "empty" || normalizedValue(item.value) === normalizedValue(value)));
+      if (!rule) {
+        rule = {field, operator, value, color: event.target.value};
+        colorRules.push(rule);
+      } else rule.color = event.target.value;
+      event.target.closest(".color-palette-row")?.querySelector("[data-color-palette-reset]")?.removeAttribute("disabled");
+      scheduleGraphFilterUpdate();
+      return;
+    }
     if (event.target.matches("[data-filter-query]")) graphFilters.query = event.target.value;
     else if (event.target.matches("[data-filter-rule-value]")) graphFilters.rules[+event.target.dataset.filterRuleValue].value = event.target.value;
     else if (event.target.matches("[data-color-rule-value]")) colorRules[+event.target.dataset.colorRuleValue].value = event.target.value;
