@@ -184,7 +184,9 @@ let db;
 let SQLRuntime;
 let loadedDatabaseName = "";
 let people = [];
+let peopleById = new Map();
 let teams = [];
+let teamsById = new Map();
 let relationships = [];
 let categoriesData = [];
 let tagsData = [];
@@ -247,6 +249,9 @@ let filterSuggestionItems = [];
 let filterSuggestionIndex = -1;
 let filterSuggestionInput = null;
 const openFilterSections = new Set();
+const attributeValuesCache = new Map();
+const colorPaletteEntriesCache = new Map();
+let exactColorRuleIndex = null;
 let activeFieldRegions = [];
 let activeFieldShapes = [];
 let hoveredOddilReachName = null;
@@ -254,9 +259,13 @@ let pinnedOddilReachName = null;
 let selectedUnitActionId = null;
 let graphFilterFrame;
 let graphFitTimer;
+let graphColorFrame;
 let spreadsheetImportState = null;
 let graphViewport = {width: 1000, height: 650};
+let activeTeamLayout = new Map();
+let graphMembersByHomeTeam = new Map();
 let stableSimulationTicks = 0;
+let graphGeometryTick = 0;
 let personTagSuggestionIndex = -1;
 let personTagSuggestionValues = [];
 
@@ -307,7 +316,10 @@ function loadWorkspaceState() {
       graphFilters.match = saved.graphFilters.match === "any" ? "any" : "all";
       graphFilters.rules = Array.isArray(saved.graphFilters.rules) ? saved.graphFilters.rules.slice(0, 30) : [];
     }
-    if (Array.isArray(saved.colorRules)) colorRules = saved.colorRules.slice(0, 1000);
+    if (Array.isArray(saved.colorRules)) {
+      colorRules = saved.colorRules.slice(0, 1000);
+      invalidateColorRuleIndex();
+    }
     if (["category", "tag", "group", "filter"].includes(saved.graphColorMode)) graphColorMode = saved.graphColorMode;
     if (FILTER_ATTRIBUTES.some(([field]) => field === saved.colorAttributeField)) colorAttributeField = saved.colorAttributeField;
     else if (colorRules[0]?.field) colorAttributeField = colorRules[0].field;
@@ -913,8 +925,10 @@ async function loadPeople() {
     LEFT JOIN tags t ON t.id = pt.tag_id
     GROUP BY p.id ORDER BY p.name
   `).map(d => ({...d, id: +d.id, birth_date: normalizeBirthDate(d.birth_date), age: d.birth_date ? ageFromBirthDate(d.birth_date) : (d.age == null || d.age === "" ? null : +d.age), category: d.category || "Bez kategorie", color: d.color || "#72766f", tagsArray: d.tags ? d.tags.split(" · ") : []}));
+  peopleById = new Map(people.map(person => [person.id, person]));
   teams = queryObjects("SELECT id, name, parent_id, level FROM teams ORDER BY level, parent_id, id")
     .map(d => ({...d, id: +d.id, parent_id: d.parent_id == null ? null : +d.parent_id, level: +d.level, nodeType: "team", uid: `team-${d.id}`}));
+  teamsById = new Map(teams.map(team => [team.id, team]));
   const memberships = queryObjects(`SELECT pt.person_id, pt.team_id, t.name, t.level, t.parent_id
     FROM people_teams pt JOIN teams t ON t.id=pt.team_id
     ORDER BY t.level, t.parent_id, t.name`);
@@ -929,12 +943,13 @@ async function loadPeople() {
       if (+membership.level === 2) return +membership.parent_id;
       return null;
     }).filter(Boolean))];
-    person.oddilNames = person.oddilIds.map(id => teams.find(team => team.id === id)?.name).filter(Boolean);
+    person.oddilNames = person.oddilIds.map(id => teamsById.get(id)?.name).filter(Boolean);
     person.oddily = person.oddilNames.join(" · ");
   });
   relationships = queryObjects("SELECT source_id AS source, target_id AS target, type FROM relationships").map(d => ({...d, source: +d.source, target: +d.target}));
   categoriesData = queryObjects("SELECT id, name, description, color FROM categories ORDER BY name").map(d => ({...d, id: +d.id}));
   tagsData = queryObjects("SELECT id, name FROM tags ORDER BY name").map(d => ({...d, id: +d.id}));
+  clearDerivedAttributeCaches();
   computeGraphSelection();
   updateGraphFilterMeta();
   renderGraphFilterPanel();
@@ -942,7 +957,7 @@ async function loadPeople() {
   renderSqlBuilderOptions();
 }
 
-function teamById(id) { return teams.find(team => team.id === +id); }
+function teamById(id) { return teamsById.get(+id); }
 
 function primaryOddilId(person) {
   let team = teamById(person.org_team_id);
@@ -1496,8 +1511,8 @@ function singleShapeFieldLayout(width, height) {
     const boxes = ordered.map(nodeCollisionBox);
     const nodeWidth = Math.max(26, d3.max(boxes, box => box.halfWidth * 2) || 26);
     const nodeHeight = Math.max(26, d3.max(boxes, box => box.halfHeight * 2) || 26);
-    const cellWidth = nodeWidth + 20;
-    const cellHeight = nodeHeight + 18;
+    const cellWidth = nodeWidth + 12;
+    const cellHeight = nodeHeight + 10;
     const columns = Math.max(1, Math.ceil(Math.sqrt(ordered.length * cellHeight / cellWidth)));
     const rows = Math.max(1, Math.ceil(ordered.length / columns));
     const contentWidth = Math.max(nodeWidth, (Math.min(columns, ordered.length) - 1) * cellWidth + nodeWidth);
@@ -1510,8 +1525,8 @@ function singleShapeFieldLayout(width, height) {
       rows,
       cellWidth,
       cellHeight,
-      width: contentWidth + 94,
-      height: contentHeight + 88,
+      width: contentWidth + 72,
+      height: contentHeight + 68,
       idealX: 0,
       idealY: 0,
       x: 0,
@@ -1550,9 +1565,9 @@ function singleShapeFieldLayout(width, height) {
   const maxZoneHeight = d3.max(zones, zone => zone.height) || 140;
   components.forEach(component => {
     const count = Math.max(1, component.names.length);
-    component.radius = count > 1 ? Math.max(230, count * 72 + Math.max(maxZoneWidth, maxZoneHeight) * .16) : 0;
-    component.width = Math.max(maxZoneWidth + 180, component.radius * 2 + maxZoneWidth + 220);
-    component.height = Math.max(maxZoneHeight + 160, component.radius * 2 + maxZoneHeight + 200);
+    component.radius = count > 1 ? Math.max(190, count * 60 + Math.max(maxZoneWidth, maxZoneHeight) * .12) : 0;
+    component.width = Math.max(maxZoneWidth + 140, component.radius * 2 + maxZoneWidth + 160);
+    component.height = Math.max(maxZoneHeight + 120, component.radius * 2 + maxZoneHeight + 140);
   });
   const totalArea = d3.sum(components, component => component.width * component.height);
   const rowLimit = Math.max(900, Math.sqrt(totalArea) * 1.35);
@@ -1562,12 +1577,12 @@ function singleShapeFieldLayout(width, height) {
   components.forEach(component => {
     if (cursorX && cursorX + component.width > rowLimit) {
       cursorX = 0;
-      cursorY += rowHeight + 180;
+      cursorY += rowHeight + 120;
       rowHeight = 0;
     }
     component.x = cursorX + component.width / 2;
     component.y = cursorY + component.height / 2;
-    cursorX += component.width + 180;
+    cursorX += component.width + 120;
     rowHeight = Math.max(rowHeight, component.height);
   });
   const minComponentX = d3.min(components, component => component.x - component.width / 2) || 0;
@@ -1628,8 +1643,8 @@ function singleShapeFieldLayout(width, height) {
         let dx = b.x - a.x;
         let dy = b.y - a.y;
         if (!dx && !dy) dx = 1;
-        const overlapX = (a.width + b.width) / 2 + 72 - Math.abs(dx);
-        const overlapY = (a.height + b.height) / 2 + 72 - Math.abs(dy);
+        const overlapX = (a.width + b.width) / 2 + 48 - Math.abs(dx);
+        const overlapY = (a.height + b.height) / 2 + 48 - Math.abs(dy);
         if (overlapX <= 0 || overlapY <= 0) continue;
         if (overlapX < overlapY) {
           const direction = dx < 0 ? -1 : 1;
@@ -1660,10 +1675,10 @@ function singleShapeFieldLayout(width, height) {
       return {x, y, box: nodeCollisionBox(person)};
     });
     zone.bounds = {
-      minX: d3.min(memberBoxes, item => item.x - item.box.halfWidth) - 38,
-      maxX: d3.max(memberBoxes, item => item.x + item.box.halfWidth) + 38,
-      minY: d3.min(memberBoxes, item => item.y - item.box.halfHeight) - 36,
-      maxY: d3.max(memberBoxes, item => item.y + item.box.halfHeight) + 36
+      minX: d3.min(memberBoxes, item => item.x - item.box.halfWidth) - 30,
+      maxX: d3.max(memberBoxes, item => item.x + item.box.halfWidth) + 30,
+      minY: d3.min(memberBoxes, item => item.y - item.box.halfHeight) - 28,
+      maxY: d3.max(memberBoxes, item => item.y + item.box.halfHeight) + 28
     };
   });
 
@@ -1862,6 +1877,7 @@ function rectangularFieldLayout(width, height) {
   const centerX = width / 2;
   const centerY = height / 2 + 20;
   const denseOddilLayout = fieldDimension === "oddil";
+  const compactNodeLayout = denseOddilLayout || usesCompactPeopleNodes("field");
   const fallbackField = "Všichni";
   const valuesFor = person => displayOptions.categories ? fieldValues(person) : [fallbackField];
   const memberships = new Map();
@@ -1926,20 +1942,20 @@ function rectangularFieldLayout(width, height) {
   // grow with the full label grid on both axes. Give the Venn solver enough
   // room to separate sets, then let each exact membership region pack its own
   // compact grid inside that geometry.
-  const peopleSpacing = denseOddilLayout ? 82 : fieldDimension === "oddil" ? 168 : 220;
-  const fieldSpacing = fieldDimension === "oddil" ? 280 : 380;
-  const minimumWidth = fieldDimension === "oddil" ? 760 : 1050;
-  const worldWidth = Math.max(width * .9, peopleScale * peopleSpacing, fieldScale * fieldSpacing, minimumWidth);
+  const peopleSpacing = denseOddilLayout ? 82 : compactNodeLayout ? 90 : 150;
+  const fieldSpacing = fieldDimension === "oddil" ? 280 : compactNodeLayout ? 250 : 300;
+  const minimumWidth = fieldDimension === "oddil" ? 760 : compactNodeLayout ? 740 : 820;
+  const worldWidth = Math.max(width * .78, peopleScale * peopleSpacing, fieldScale * fieldSpacing, minimumWidth);
   const worldHeight = fieldDimension === "oddil"
     ? Math.max(height * .82, worldWidth * .62, 680)
-    : Math.max(height * .88, worldWidth * .72, 760);
+    : Math.max(height * .78, worldWidth * .66, 620);
   let circles = {};
   if (fieldNames.length === 1) {
     const name = fieldNames[0];
     circles[name] = {
       x: centerX,
       y: centerY,
-      radius: Math.max(120, Math.sqrt(memberIdsByField.get(name).size) * 48)
+      radius: Math.max(96, Math.sqrt(memberIdsByField.get(name).size) * (compactNodeLayout ? 30 : 38))
     };
   } else if (fieldNames.length > 1) {
     const solved = vennLibrary.normalizeSolution(vennLibrary.venn(areas, {maxIterations: 700}), Math.PI / 2, null);
@@ -2100,8 +2116,8 @@ function rectangularFieldLayout(width, height) {
     if (![bounds.minX, bounds.maxX, bounds.minY, bounds.maxY].every(Number.isFinite) || bounds.minX > bounds.maxX || bounds.minY > bounds.maxY) return [];
     const result = [];
     const steps = [42, 34, 27, 21, 16, 12, 8, 5, 3, 2, 1];
-    const widestLabel = denseOddilLayout ? 24 : d3.max(zone.members, person => estimatedPersonLabelWidth(person)) || 48;
-    const desiredInset = denseOddilLayout ? 12 : Math.max(16, Math.min(30, widestLabel / 3));
+    const widestLabel = compactNodeLayout ? 28 : d3.max(zone.members, person => estimatedPersonLabelWidth(person)) || 48;
+    const desiredInset = compactNodeLayout ? 12 : Math.max(16, Math.min(30, widestLabel / 3));
     const insetFactors = [1, .9, .75, .58, .42, .28, .16, .08, 0, 0, 0];
     const minimumCandidateCount = fieldDimension === "oddil"
       ? Math.max(zone.members.length * 12, 120)
@@ -2131,8 +2147,8 @@ function rectangularFieldLayout(width, height) {
     const maxY = d3.max(candidates, candidate => candidate.y);
     const availableWidth = Math.max(horizontalSpacing, maxX - minX);
     const availableHeight = Math.max(verticalSpacing, maxY - minY);
-    const compactOddilGrid = fieldDimension === "oddil";
-    const idealColumns = compactOddilGrid
+    const compactFieldGrid = true;
+    const idealColumns = compactFieldGrid
       ? Math.ceil(Math.sqrt(members.length * verticalSpacing / horizontalSpacing * 1.25))
       : Math.ceil(Math.sqrt(members.length * availableWidth / availableHeight * verticalSpacing / horizontalSpacing));
     const columns = Math.max(1, Math.min(members.length, idealColumns));
@@ -2147,13 +2163,13 @@ function rectangularFieldLayout(width, height) {
       const row = Math.floor(index / columns);
       const itemsInRow = Math.min(columns, members.length - row * columns);
       const column = index - row * columns;
-      const targetX = compactOddilGrid
+      const targetX = compactFieldGrid
         ? anchor.x + (column - (itemsInRow - 1) / 2) * horizontalSpacing
         : itemsInRow === 1 ? (minX + maxX) / 2 : minX + column / (itemsInRow - 1) * (maxX - minX);
-      const targetY = compactOddilGrid
+      const targetY = compactFieldGrid
         ? anchor.y + (row - (rows - 1) / 2) * verticalSpacing
         : rows === 1 ? (minY + maxY) / 2 : minY + row / (rows - 1) * (maxY - minY);
-      const halfWidth = denseOddilLayout ? 12 : estimatedPersonLabelWidth(person) / 2 + 7;
+      const halfWidth = compactNodeLayout ? 14 : estimatedPersonLabelWidth(person) / 2 + 7;
       const ordered = candidates.map((candidate, candidateIndex) => ({candidate, candidateIndex}))
         .filter(entry => !used.has(entry.candidateIndex))
         .sort((a, b) => (a.candidate.x - targetX) ** 2 + (a.candidate.y - targetY) ** 2 - ((b.candidate.x - targetX) ** 2 + (b.candidate.y - targetY) ** 2));
@@ -2175,9 +2191,9 @@ function rectangularFieldLayout(width, height) {
     zones.forEach(zone => {
       const candidates = candidatePoints(zone);
       const widestLabel = d3.max(zone.members, person => estimatedPersonLabelWidth(person)) || 48;
-      const horizontalSpacing = denseOddilLayout ? 30 : Math.max(72, Math.min(190, widestLabel + 22));
-      const verticalSpacing = denseOddilLayout ? 30 : 44;
-      const orderedMembers = denseOddilLayout
+      const horizontalSpacing = denseOddilLayout ? 30 : compactNodeLayout ? 42 : Math.max(72, Math.min(190, widestLabel + 22));
+      const verticalSpacing = denseOddilLayout ? 30 : compactNodeLayout ? 40 : 56;
+      const orderedMembers = compactNodeLayout
         ? [...zone.members].sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id)
         : [...zone.members].sort((a, b) => estimatedPersonLabelWidth(b) - estimatedPersonLabelWidth(a) || personName(a).localeCompare(personName(b), "cs"));
       const chosenCandidates = structuredCandidatePoints(candidates, orderedMembers, horizontalSpacing, verticalSpacing, occupied);
@@ -2247,7 +2263,7 @@ function rectangularFieldLayout(width, height) {
       const remaining = zone.members.filter(person => !targets.has(person.id));
       const widestLabel = d3.max(remaining, person => estimatedPersonLabelWidth(person)) || 48;
       const horizontalSpacing = denseOddilLayout ? 30 : Math.max(72, Math.min(190, widestLabel + 22));
-      const verticalSpacing = denseOddilLayout ? 30 : 44;
+      const verticalSpacing = denseOddilLayout ? 30 : 56;
       const candidates = assignedCandidates(zone);
       const chosen = structuredCandidatePoints(candidates, remaining, horizontalSpacing, verticalSpacing, repairOccupied);
       const expected = new Set(zone.names);
@@ -2607,11 +2623,29 @@ function primaryColorAttributeValue(person, field = activeColorAttribute()) {
   return [...source].map(value => String(value ?? "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b, "cs", {sensitivity: "base"}))[0] || "";
 }
 
+function clearDerivedAttributeCaches() {
+  attributeValuesCache.clear();
+  colorPaletteEntriesCache.clear();
+}
+
+function invalidateColorRuleIndex() {
+  exactColorRuleIndex = null;
+}
+
+function colorRuleKey(field, operator, value) {
+  return `${field}\u0000${operator}\u0000${operator === "empty" ? "" : normalizedValue(value)}`;
+}
+
 function exactColorRule(field, value) {
+  if (!exactColorRuleIndex) {
+    exactColorRuleIndex = new Map();
+    colorRules.forEach(rule => {
+      const operator = rule.operator || "equals";
+      if (operator === "equals" || operator === "empty") exactColorRuleIndex.set(colorRuleKey(rule.field, operator, rule.value), rule);
+    });
+  }
   const empty = !String(value ?? "").trim();
-  return colorRules.find(rule => rule.field === field && (empty
-    ? rule.operator === "empty"
-    : (rule.operator || "equals") === "equals" && normalizedValue(rule.value) === normalizedValue(value)));
+  return exactColorRuleIndex.get(colorRuleKey(field, empty ? "empty" : "equals", value));
 }
 
 function defaultAttributeValueColor(field, value) {
@@ -2632,14 +2666,25 @@ function colorInputValue(color, fallback) {
 }
 
 function colorPaletteEntries(field = activeColorAttribute()) {
+  if (colorPaletteEntriesCache.has(field)) return colorPaletteEntriesCache.get(field);
+  const counts = new Map();
+  let missingCount = 0;
+  people.forEach(person => {
+    const value = primaryColorAttributeValue(person, field);
+    if (!value) missingCount += 1;
+    else {
+      const key = normalizedValue(value);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  });
   const entries = filterAttributeValues(field).map(value => ({
     value,
     label: value,
-    count: people.filter(person => normalizedValue(primaryColorAttributeValue(person, field)) === normalizedValue(value)).length,
+    count: counts.get(normalizedValue(value)) || 0,
     operator: "equals"
   }));
-  const missingCount = people.filter(person => !primaryColorAttributeValue(person, field)).length;
   if (missingCount) entries.push({value: "", label: "Bez hodnoty", count: missingCount, operator: "empty"});
+  colorPaletteEntriesCache.set(field, entries);
   return entries;
 }
 
@@ -2672,6 +2717,38 @@ function structureLinkColor(link) {
   const uid = typeof endpoint === "string" ? endpoint : endpoint?.uid;
   const teamId = Number(String(uid || "").replace("team-", ""));
   return unitClusterColor(teamById(teamId));
+}
+
+function applyGraphColorStyles() {
+  if (!nodeLayer || !teamLayer) return;
+  nodeLayer.selectAll("g.person-node")
+    .style("--node-color", selectedPersonColor)
+    .style("--cluster-color", person => unitClusterColor(teamById(graphHomeTeamId(person))));
+  teamLayer.selectAll("g.team-node")
+    .style("--unit-color", team => team.level > 0 ? unitClusterColor(team) : (teamGraphColor(team) || null))
+    .classed("custom-color", team => team.level > 0 || Boolean(teamGraphColor(team)));
+  structureLinkLayer?.selectAll("line").style("--link-color", structureLinkColor);
+
+  zoneLayer?.selectAll("path.unit-cluster-halo")
+    .style("--cluster-color", cluster => {
+      cluster.color = unitClusterColor(cluster.team);
+      return cluster.color;
+    });
+
+  if (currentMode !== "field" || !activeFieldShapes.length) return;
+  const indexes = new Map(activeFieldShapes.map((field, index) => [field.name, index]));
+  activeFieldShapes.forEach(field => { field.color = fieldColor(field.name, indexes.get(field.name) || 0); });
+  const zones = zoneLayer.selectAll("g.field-region").style("--field-color", field => field.color);
+  zones.selectAll("path.field-shape").attr("fill", field => field.color);
+  zones.selectAll("path.field-outline").attr("stroke", field => field.color);
+}
+
+function scheduleGraphColorStyleUpdate() {
+  cancelAnimationFrame(graphColorFrame);
+  graphColorFrame = requestAnimationFrame(() => {
+    applyGraphColorStyles();
+    updateGraphFilterMeta();
+  });
 }
 
 function updateGraphFilterMeta() {
@@ -2726,6 +2803,7 @@ const FILTER_QUERY_PREFIXES = {
 };
 
 function filterAttributeValues(field) {
+  if (attributeValuesCache.has(field)) return attributeValuesCache.get(field);
   const values = [];
   if (field === "category") values.push(...categoriesData.map(item => item.name));
   if (field === "tags") values.push(...tagsData.map(item => item.name));
@@ -2741,9 +2819,11 @@ function filterAttributeValues(field) {
     if (text && !unique.has(key)) unique.set(key, text);
   });
   const result = [...unique.values()];
-  return field === "age"
+  const sorted = field === "age"
     ? result.sort((a, b) => Number(a) - Number(b))
     : result.sort((a, b) => a.localeCompare(b, "cs", {numeric: true, sensitivity: "base"}));
+  attributeValuesCache.set(field, sorted);
+  return sorted;
 }
 
 function filterQueryTokenRange(input) {
@@ -2891,7 +2971,8 @@ function renderGraphFilterPanel() {
   if (!panel) return;
   const previousScrollTop = panel.scrollTop;
   const paletteField = activeColorAttribute();
-  const paletteEntries = colorPaletteEntries(paletteField);
+  const colorsOpen = openFilterSections.has("colors");
+  const paletteEntries = colorsOpen ? colorPaletteEntries(paletteField) : [];
   const paletteSummary = graphColorMode === "filter"
     ? FILTER_ATTRIBUTES.find(([field]) => field === paletteField)?.[1] || "Atribut"
     : COLOR_MODES.find(([value]) => value === graphColorMode)?.[1] || "";
@@ -2941,7 +3022,7 @@ function renderGraphFilterPanel() {
         <button class="filter-add-button" type="button" data-filter-action="add-rule">+ Přidat podmínku</button>
       </div>
     </details>
-    <details class="filter-section filter-collapsible" data-filter-section="colors"${openFilterSections.has("colors") ? " open" : ""}>
+    <details class="filter-section filter-collapsible" data-filter-section="colors" data-palette-ready="${colorsOpen ? "true" : "false"}"${colorsOpen ? " open" : ""}>
       <summary class="filter-section-head"><strong>Barvy uzlů</strong><span>${escapeHtml(paletteSummary)}</span></summary>
       <div class="filter-section-body">
         <label class="filter-field"><span>Barvit podle</span><select data-color-mode>${selectOptions(COLOR_MODES, graphColorMode)}</select></label>
@@ -2976,7 +3057,7 @@ function scheduleGraphFilterUpdate() {
     clearTimeout(graphFitTimer);
     graphFitTimer = setTimeout(() => fitMapToStructure(true), 700);
     scheduleWorkspaceState();
-  }, 120);
+  }, 180);
 }
 
 function escapeHtml(value = "") {
@@ -3349,6 +3430,7 @@ function hierarchyGuideForce(width, height) {
 
 function restoreNetworkLayout(width, height) {
   const layout = teamPositions(width, height);
+  activeTeamLayout = layout;
   const peopleTargets = personOrbitTargets(width, height, layout);
   const saved = positionCache.network || {};
   graphTeams.forEach(team => {
@@ -3369,7 +3451,7 @@ function restoreNetworkLayout(width, height) {
     person.fx = null;
     person.fy = null;
   });
-  updateGraphGeometry();
+  updateGraphGeometry(true);
 }
 
 function usesCompactPeopleNodes(mode = currentMode) {
@@ -3402,15 +3484,14 @@ function automaticLinkDistance(link) {
   if (link.kind === "membership") return distance * 1.35;
   if (link.kind === "assignment") {
     const endpoint = link.source?.nodeType === "team" ? link.source : link.target;
-    const members = endpoint?.id ? graphPeople.filter(person => +(graphHomeTeamId(person) || 0) === endpoint.id) : [];
+    const members = endpoint?.id ? graphMembersByHomeTeam.get(endpoint.id) || [] : [];
     return Math.max(64, distance * .62, Math.min(155, clusterSeedRadius(members) * .48));
   }
   const child = link.target?.nodeType === "team" ? link.target : link.source;
   const parent = child === link.target ? link.source : link.target;
   if (child?.id && parent?.id) {
-    const targets = teamPositions(graphViewport.width, graphViewport.height);
-    const childTarget = targets.get(child.id);
-    const parentTarget = targets.get(parent.id);
+    const childTarget = activeTeamLayout.get(child.id);
+    const parentTarget = activeTeamLayout.get(parent.id);
     if (childTarget && parentTarget) {
       const minimum = child.level === 2 ? 120 : 260;
       return Math.max(minimum, Math.hypot(childTarget[0] - parentTarget[0], childTarget[1] - parentTarget[1]));
@@ -3462,13 +3543,28 @@ function translateStructureCluster(cluster, dx, dy) {
 
 function resolveStructureClusterBuffers(nodes, strength = 1, passes = 1, maxStep = Infinity) {
   if (!displayOptions.primary) return 0;
-  const clusters = structureClusters(nodes);
+  const clusters = structureClusters(nodes).map(structureClusterBounds);
+  const moveBounds = (cluster, dx, dy) => {
+    if (!dx && !dy) return;
+    const movesAsOne = cluster.members.every(node => node.fx == null && node.fy == null);
+    translateStructureCluster(cluster, dx, dy);
+    if (!movesAsOne) {
+      Object.assign(cluster, structureClusterBounds(cluster));
+      return;
+    }
+    cluster.minX += dx;
+    cluster.maxX += dx;
+    cluster.minY += dy;
+    cluster.maxY += dy;
+    cluster.cx += dx;
+    cluster.cy += dy;
+  };
   let unresolved = 0;
   for (let pass = 0; pass < passes; pass += 1) {
     unresolved = 0;
     for (let left = 0; left < clusters.length; left += 1) for (let right = left + 1; right < clusters.length; right += 1) {
-      const a = structureClusterBounds(clusters[left]);
-      const b = structureClusterBounds(clusters[right]);
+      const a = clusters[left];
+      const b = clusters[right];
       const overlapX = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX) + PEOPLE_CLUSTER_BUFFER;
       const overlapY = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY) + PEOPLE_CLUSTER_BUFFER;
       if (overlapX <= .5 || overlapY <= .5) continue;
@@ -3483,8 +3579,8 @@ function resolveStructureClusterBuffers(nodes, strength = 1, passes = 1, maxStep
       const direction = horizontal
         ? (a.cx < b.cx || (a.cx === b.cx && a.id < b.id) ? -1 : 1)
         : (a.cy < b.cy || (a.cy === b.cy && a.id < b.id) ? -1 : 1);
-      translateStructureCluster(a, horizontal ? direction * correction * aShare : 0, horizontal ? 0 : direction * correction * aShare);
-      translateStructureCluster(b, horizontal ? -direction * correction * bShare : 0, horizontal ? 0 : -direction * correction * bShare);
+      moveBounds(a, horizontal ? direction * correction * aShare : 0, horizontal ? 0 : direction * correction * aShare);
+      moveBounds(b, horizontal ? -direction * correction * bShare : 0, horizontal ? 0 : -direction * correction * bShare);
     }
     if (!unresolved) break;
   }
@@ -3811,13 +3907,17 @@ function graphLinkEndpoint(node, other) {
   return [node.x + dx * scale, node.y + dy * scale];
 }
 
-function updateGraphGeometry() {
-  zoneLayer?.selectAll("path.unit-cluster-halo").attr("d", structureClusterHaloPath);
-  [structureLinkLayer, relationshipLinkLayer].forEach(layer => layer?.selectAll("line")
-    .attr("x1", d => graphLinkEndpoint(d.source, d.target)[0])
-    .attr("y1", d => graphLinkEndpoint(d.source, d.target)[1])
-    .attr("x2", d => graphLinkEndpoint(d.target, d.source)[0])
-    .attr("y2", d => graphLinkEndpoint(d.target, d.source)[1]));
+function updateGraphGeometry(forceHalos = false) {
+  graphGeometryTick += 1;
+  if (forceHalos || graphGeometryTick % 2 === 0) zoneLayer?.selectAll("path.unit-cluster-halo").attr("d", structureClusterHaloPath);
+  [structureLinkLayer, relationshipLinkLayer].forEach(layer => layer?.selectAll("line").each(function(link) {
+    const [x1, y1] = graphLinkEndpoint(link.source, link.target);
+    const [x2, y2] = graphLinkEndpoint(link.target, link.source);
+    this.setAttribute("x1", x1);
+    this.setAttribute("y1", y1);
+    this.setAttribute("x2", x2);
+    this.setAttribute("y2", y2);
+  }));
   nodeLayer?.selectAll("g.person-node").attr("transform", d => `translate(${d.x},${d.y})`);
   teamLayer?.selectAll("g.team-node").attr("transform", d => `translate(${d.x},${d.y})`);
 }
@@ -3900,7 +4000,7 @@ function settleSimulationWhenStill(nodes) {
   if (currentMode === "network" && displayOptions.primary) {
     enforceNoNodeOverlap(nodes, 12);
     resolveStructureClusterBuffers(nodes, 1, 30);
-    updateGraphGeometry();
+    updateGraphGeometry(true);
   }
   simulation.stop();
   stableSimulationTicks = 0;
@@ -4219,7 +4319,7 @@ function personInformationSections(person) {
     .filter(relation => relation.source === person.id || relation.target === person.id)
     .map(relation => {
       const otherId = relation.source === person.id ? relation.target : relation.source;
-      const other = people.find(candidate => candidate.id === otherId);
+      const other = peopleById.get(otherId);
       return other ? `${personName(other)}${clean(relation.type) ? ` (${clean(relation.type)})` : ""}` : "";
     })
     .filter(Boolean))]
@@ -4374,7 +4474,7 @@ function openPersonInfoCard(event, person, personNode) {
 }
 
 async function copySelectedPersonInformation(button) {
-  const person = people.find(candidate => candidate.id === selectedPersonId);
+  const person = peopleById.get(selectedPersonId);
   if (!person) return;
   const text = personClipboardText(person);
   try {
@@ -4661,6 +4761,7 @@ function initGraphV2() {
 
 function renderGraphV2() {
   if (simulation) simulation.stop();
+  graphGeometryTick = 0;
   const mapView = document.querySelector("#map-view");
   const graphIsVisible = mapView.clientWidth > 1 && mapView.clientHeight > 1;
   const width = mapView.clientWidth || graphViewport.width || 1000;
@@ -4671,6 +4772,8 @@ function renderGraphV2() {
   nodeLayer?.selectAll("g.person-node").each(d => oldPositions.set(d.uid, [d.x, d.y]));
   teamLayer?.selectAll("g.team-node").each(d => oldPositions.set(d.uid, [d.x, d.y]));
   const layout = teamPositions(width, height);
+  activeTeamLayout = layout;
+  graphMembersByHomeTeam = d3.group(graphPeople, person => +(graphHomeTeamId(person) || 0));
   const orbitTargets = personOrbitTargets(width, height, layout);
   const savedPositions = positionCache[currentMode] || {};
   graphPeople.forEach((person, index) => {
@@ -4803,7 +4906,7 @@ function renderGraphV2() {
     .on("end", () => {
       enforceNoNodeOverlap(simulation.nodes(), 12);
       resolveStructureClusterBuffers(simulation.nodes(), 1, 30);
-      updateGraphGeometry();
+      updateGraphGeometry(true);
       simulation.nodes().forEach(node => { node.vx = 0; node.vy = 0; });
       persistWorkspaceState(true);
     });
@@ -6951,8 +7054,10 @@ function bindEvents() {
   filterPanel.addEventListener("toggle", event => {
     const section = event.target.closest?.("details[data-filter-section]");
     if (!section || section !== event.target) return;
-    if (section.open) openFilterSections.add(section.dataset.filterSection);
-    else openFilterSections.delete(section.dataset.filterSection);
+    if (section.open) {
+      openFilterSections.add(section.dataset.filterSection);
+      if (section.dataset.filterSection === "colors" && section.dataset.paletteReady !== "true") requestAnimationFrame(renderGraphFilterPanel);
+    } else openFilterSections.delete(section.dataset.filterSection);
   }, true);
   filterPanel.addEventListener("click", event => {
     event.stopPropagation();
@@ -6967,9 +7072,14 @@ function bindEvents() {
       const value = paletteReset.dataset.colorValue;
       const operator = paletteReset.dataset.colorOperator || "equals";
       const index = colorRules.findIndex(rule => rule.field === field && (rule.operator || "equals") === operator && (operator === "empty" || normalizedValue(rule.value) === normalizedValue(value)));
-      if (index >= 0) colorRules.splice(index, 1);
+      if (index >= 0) {
+        colorRules.splice(index, 1);
+        invalidateColorRuleIndex();
+      }
       renderGraphFilterPanel();
-      scheduleGraphFilterUpdate();
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
       return;
     }
     const action = event.target.closest("[data-filter-action]")?.dataset.filterAction;
@@ -6980,6 +7090,7 @@ function bindEvents() {
     }
     if (action === "add-color") {
       colorRules.push({field: "category", operator: "equals", value: "", color: "#6ba29b"});
+      invalidateColorRuleIndex();
       renderGraphFilterPanel();
       return;
     }
@@ -6988,6 +7099,7 @@ function bindEvents() {
       connectionFilters = {...DEFAULT_CONNECTION_FILTERS};
       hiddenRelationshipTypes = [];
       colorRules = [];
+      invalidateColorRuleIndex();
       graphColorMode = "group";
       colorAttributeField = "role";
       displayOptions.tags = false;
@@ -7009,8 +7121,11 @@ function bindEvents() {
     const colorRemove = event.target.closest("[data-color-remove]");
     if (colorRemove) {
       colorRules.splice(+colorRemove.dataset.colorRemove, 1);
+      invalidateColorRuleIndex();
       renderGraphFilterPanel();
-      scheduleGraphFilterUpdate();
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
       return;
     }
     const move = event.target.closest("[data-color-move]");
@@ -7018,8 +7133,11 @@ function bindEvents() {
       const from = +move.dataset.colorMove;
       const to = from + +move.dataset.direction;
       if (to >= 0 && to < colorRules.length) colorRules.splice(to, 0, colorRules.splice(from, 1)[0]);
+      invalidateColorRuleIndex();
       renderGraphFilterPanel();
-      scheduleGraphFilterUpdate();
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
     }
   });
   filterPanel.addEventListener("change", event => {
@@ -7035,10 +7153,18 @@ function bindEvents() {
     else if (event.target.matches("[data-color-mode]")) {
       graphColorMode = event.target.value;
       renderGraphFilterPanel();
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
+      return;
     }
     else if (event.target.matches("[data-color-attribute-field]")) {
       colorAttributeField = event.target.value;
       renderGraphFilterPanel();
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
+      return;
     }
     else if (event.target.matches("[data-connection-filter]")) {
       connectionFilters[event.target.dataset.connectionFilter] = event.target.checked;
@@ -7060,13 +7186,23 @@ function bindEvents() {
       hideFilterSuggestions();
     } else if (event.target.matches("[data-color-rule-field]")) {
       colorRules[+event.target.dataset.colorRuleField].field = event.target.value;
+      invalidateColorRuleIndex();
       hideFilterSuggestions();
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
+      return;
     } else if (event.target.matches("[data-color-rule-operator]")) {
       const rule = colorRules[+event.target.dataset.colorRuleOperator];
       rule.operator = event.target.value;
+      invalidateColorRuleIndex();
       const input = event.target.closest(".color-rule")?.querySelector("[data-color-rule-value]");
       if (input) input.disabled = rule.operator === "empty";
       hideFilterSuggestions();
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
+      return;
     }
     else return;
     scheduleGraphFilterUpdate();
@@ -7093,16 +7229,32 @@ function bindEvents() {
         rule = {field, operator, value, color: event.target.value};
         colorRules.push(rule);
       } else rule.color = event.target.value;
+      invalidateColorRuleIndex();
       event.target.closest(".color-palette-row")?.querySelector("[data-color-palette-reset]")?.removeAttribute("disabled");
-      scheduleGraphFilterUpdate();
+      scheduleGraphColorStyleUpdate();
+      scheduleWorkspaceState();
       return;
     }
     if (event.target.matches("[data-filter-query]")) graphFilters.query = event.target.value;
     else if (event.target.matches("[data-filter-rule-value]")) graphFilters.rules[+event.target.dataset.filterRuleValue].value = event.target.value;
-    else if (event.target.matches("[data-color-rule-value]")) colorRules[+event.target.dataset.colorRuleValue].value = event.target.value;
-    else if (event.target.matches("[data-color-rule-color]")) colorRules[+event.target.dataset.colorRuleColor].color = event.target.value;
+    else if (event.target.matches("[data-color-rule-value]")) {
+      colorRules[+event.target.dataset.colorRuleValue].value = event.target.value;
+      invalidateColorRuleIndex();
+      renderFilterSuggestions(event.target);
+      applyGraphColorStyles();
+      updateGraphFilterMeta();
+      scheduleWorkspaceState();
+      return;
+    }
+    else if (event.target.matches("[data-color-rule-color]")) {
+      colorRules[+event.target.dataset.colorRuleColor].color = event.target.value;
+      invalidateColorRuleIndex();
+      scheduleGraphColorStyleUpdate();
+      scheduleWorkspaceState();
+      return;
+    }
     else return;
-    if (event.target.matches("[data-filter-query], [data-filter-rule-value], [data-color-rule-value]")) renderFilterSuggestions(event.target);
+    if (event.target.matches("[data-filter-query], [data-filter-rule-value]")) renderFilterSuggestions(event.target);
     scheduleGraphFilterUpdate();
   });
   filterPanel.addEventListener("focusin", event => {
