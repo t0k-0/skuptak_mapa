@@ -297,7 +297,6 @@ function loadWorkspaceState() {
     if (Array.isArray(saved.selectedFieldTagIds)) selectedFieldTagIds = saved.selectedFieldTagIds.map(Number).filter(Number.isFinite);
     if (["name", "usage"].includes(saved.fieldTagSort)) fieldTagSort = saved.fieldTagSort;
     if (typeof saved.fieldTagOnlyUsed === "boolean") fieldTagOnlyUsed = saved.fieldTagOnlyUsed;
-    if (typeof saved.fieldSidebarExpanded === "boolean") fieldSidebarExpanded = saved.fieldSidebarExpanded;
     if (["map", "edit", "sql"].includes(saved.section)) activeSection = saved.section;
     if (typeof saved.searchTerm === "string") searchTerm = saved.searchTerm;
     ["network", "field", "age"].forEach(mode => {
@@ -595,12 +594,12 @@ function renderShell() {
             </div>
             <div class="field-subnav" aria-label="Kategorie pohledu Field">
               <button type="button" class="field-subnav-button" data-field="oddil">Oddíly</button>
+              <button type="button" class="field-subnav-button" data-field="tags">Štítky</button>
+              <details class="field-tag-picker" id="field-tag-picker" hidden><summary>Vybrat štítky <span id="field-tag-count"></span></summary><div class="field-tag-menu" id="field-tag-menu" role="dialog" aria-label="Výběr štítků"></div></details>
               <button type="button" class="field-subnav-button" data-field="druzina">Družiny</button>
               <button type="button" class="field-subnav-button" data-field="role">Role</button>
               <button type="button" class="field-subnav-button" data-field="city">Města</button>
               <button type="button" class="field-subnav-button" data-field="category">Kategorie</button>
-              <button type="button" class="field-subnav-button" data-field="tags">Štítky</button>
-              <details class="field-tag-picker" id="field-tag-picker" hidden><summary>Vybrat štítky <span id="field-tag-count"></span></summary><div class="field-tag-menu" id="field-tag-menu"></div></details>
             </div>
           </div>
           <button class="nav-button" data-view-mode="age">${icons.age}<span>Věk</span></button>
