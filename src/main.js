@@ -459,6 +459,22 @@ function databaseGateStatus(message, state = "ready") {
   }
 }
 
+function mountApplicationLoader(message = "Rozmisťuji lidi na mapě") {
+  const loader = document.createElement("div");
+  loader.className = "app-loading-screen";
+  loader.setAttribute("role", "status");
+  loader.setAttribute("aria-live", "polite");
+  loader.innerHTML = `
+    <div class="app-loading-visual" aria-hidden="true">
+      <span class="app-loading-logo">${skuptakEmblemSvg}</span>
+      <i></i><i></i><i></i>
+    </div>
+    <strong>${escapeHtml(message)}</strong>
+    <span>Skupták skládá souvislosti</span>`;
+  app.appendChild(loader);
+  return loader;
+}
+
 function renderDatabaseGate() {
   document.documentElement.classList.add("landing-page");
   app.innerHTML = `
@@ -554,7 +570,7 @@ async function handleStartupDatabaseFile(file) {
     const count = result[0]?.values?.[0]?.[0] ?? 0;
     loadedDatabaseName = file.name;
     databaseGateStatus(`Načteno ${count} lidí. Sestavuji mapu…`, "success");
-    await new Promise(resolve => setTimeout(resolve, 240));
+    await new Promise(resolve => setTimeout(resolve, 80));
     await startApplication();
   } catch (error) {
     try { candidate?.close(); } catch (_) {}
@@ -567,9 +583,11 @@ async function handleStartupDatabaseFile(file) {
 }
 
 async function startApplication() {
+  const loadingStarted = performance.now();
   document.documentElement.classList.remove("landing-page");
   activeSection = "map";
   renderShell();
+  const launchLoader = mountApplicationLoader();
   applyAppSettings(false);
   syncWorkspaceControls();
   await loadPeople();
@@ -577,6 +595,11 @@ async function startApplication() {
   bindEvents();
   initGraphV2();
   showSection("map");
+  const remaining = Math.max(0, 320 - (performance.now() - loadingStarted));
+  if (remaining) await new Promise(resolve => setTimeout(resolve, remaining));
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  launchLoader.classList.add("is-leaving");
+  setTimeout(() => launchLoader.remove(), 180);
 }
 
 function renderShell() {
@@ -626,6 +649,7 @@ function renderShell() {
       </aside>
       <main class="workspace">
         <header class="topbar">
+          <img class="mobile-topbar-logo" src="${skuptakEmblemUrl}" alt="" aria-hidden="true">
           <div class="title-block"><span class="eyebrow" id="section-kicker">Interaktivní přehled</span><h1 id="section-title">Kdo tvoří středisko?</h1></div>
           <div class="top-actions">
             <div class="search-wrap" role="search">${icons.search}<input id="search" class="search-input" type="search" placeholder="Hledat jméno, roli, štítek…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="map-search-suggestions" aria-expanded="false"><span class="search-key">/</span><div class="map-search-suggestions" id="map-search-suggestions" role="listbox" hidden></div></div>
@@ -3217,12 +3241,12 @@ function updateMode(mode, animate = true) {
     simulation.force("link").strength(0);
     simulation.force("charge", d3.forceManyBody().strength(-75));
     const ages = people.map(d => d.age);
-    const scale = d3.scaleLinear().domain([Math.floor((d3.min(ages)-2)/5)*5, Math.ceil((d3.max(ages)+2)/5)*5]).range([135, width - 90]);
-    const axisY = Math.max(100, height - 70);
-    axisLayer.append("g").attr("class", "age-axis").attr("transform", `translate(0,${axisY})`).call(d3.axisBottom(scale).ticks(Math.min(8, width/110)).tickFormat(d => `${d} let`));
-    scale.ticks(8).forEach(t => axisLayer.append("line").attr("class", "age-guide").attr("x1", scale(t)).attr("x2", scale(t)).attr("y1", 115).attr("y2", axisY));
-    simulation.force("x", d3.forceX(d => scale(d.age)).strength(.22));
-    simulation.force("y", d3.forceY(d => height * .5 + ((d.id % 3)-1)*72).strength(.12));
+    const scale = d3.scaleLinear().domain([Math.floor((d3.min(ages)-2)/5)*5, Math.ceil((d3.max(ages)+2)/5)*5]).range([height - 80, 100]);
+    const axisX = 92;
+    axisLayer.append("g").attr("class", "age-axis").attr("transform", `translate(${axisX},0)`).call(d3.axisLeft(scale).ticks(Math.min(9, height/80)).tickFormat(d => `${d} let`));
+    scale.ticks(8).forEach(t => axisLayer.append("line").attr("class", "age-guide").attr("x1", axisX).attr("x2", width - 50).attr("y1", scale(t)).attr("y2", scale(t)));
+    simulation.force("x", d3.forceX(d => width * .52 + ((d.id % 3)-1)*72).strength(.12));
+    simulation.force("y", d3.forceY(d => scale(d.age)).strength(.22));
   }
   simulation.alpha(animate ? .9 : .4).restart();
 }
@@ -3870,22 +3894,22 @@ function ageGraphLayout(width, height) {
   const grouped = d3.group(known, person => Math.floor(person.age));
   const largestAgeGroup = d3.max([...grouped.values()], members => members.length) || 1;
   const dotGap = 23;
-  const plotHeight = Math.max(310, height - 205, largestAgeGroup * dotGap + 76);
-  const top = 76;
-  const axisY = top + plotHeight;
+  const ageSpan = Math.max(10, maxAge - minAge);
+  const plotHeight = Math.max(560, height - 170, ageSpan * 14);
+  const top = 92;
+  const bottom = top + plotHeight;
   const unknownColumns = unknown.length ? Math.max(1, Math.min(5, Math.ceil(Math.sqrt(unknown.length)))) : 0;
   const unknownLaneWidth = unknown.length ? Math.max(146, unknownColumns * dotGap + 58) : 0;
-  const ageSpan = Math.max(10, maxAge - minAge);
-  const plotWidth = Math.max(680, width - 150 - unknownLaneWidth, ageSpan * 20);
-  const left = 76;
+  const plotWidth = Math.max(500, width - 190 - unknownLaneWidth, largestAgeGroup * dotGap + 120);
+  const left = 96;
   const right = left + plotWidth;
-  const scale = d3.scaleLinear().domain([minAge, maxAge]).range([left, right]);
-  const middleY = top + plotHeight / 2;
+  const scale = d3.scaleLinear().domain([minAge, maxAge]).range([bottom, top]);
+  const middleX = left + plotWidth / 2;
   grouped.forEach((members, age) => {
     const ordered = [...members].sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id);
     ordered.forEach((person, index) => {
       const step = index === 0 ? 0 : Math.ceil(index / 2) * (index % 2 ? -1 : 1);
-      targets.set(person.id, [scale(+age), middleY + step * dotGap]);
+      targets.set(person.id, [middleX + step * dotGap, scale(+age)]);
     });
   });
   const unknownStartX = right + (unknown.length ? 78 : 0);
@@ -3896,16 +3920,17 @@ function ageGraphLayout(width, height) {
   });
   const unknownRows = unknown.length ? Math.ceil(unknown.length / unknownColumns) : 0;
   const maxX = unknown.length ? unknownStartX + (unknownColumns - 1) * dotGap + 50 : right + 30;
-  const maxY = Math.max(axisY + 58, unknown.length ? top + 70 + unknownRows * dotGap : 0);
+  const maxY = Math.max(bottom + 58, unknown.length ? top + 70 + unknownRows * dotGap : 0);
   return {
     targets,
     scale,
-    axisY,
+    axisX: left,
+    bottom,
     top,
     right,
     unknown,
     unknownStartX,
-    tickCount: Math.max(4, Math.min(16, Math.floor(plotWidth / 105))),
+    tickCount: Math.max(5, Math.min(16, Math.floor(plotHeight / 82))),
     bounds: {
       minX: 30,
       minY: 24,
@@ -5181,17 +5206,18 @@ function updateModeV2(mode, animate = true) {
       .text("Každý bod představuje jednoho člověka");
     axisLayer.append("g")
       .attr("class", "age-axis age-axis-graph")
-      .attr("transform", `translate(0,${ageLayout.axisY})`)
-      .call(d3.axisBottom(ageLayout.scale)
+      .attr("transform", `translate(${ageLayout.axisX},0)`)
+      .call(d3.axisLeft(ageLayout.scale)
         .ticks(ageLayout.tickCount)
         .tickFormat(value => `${value}`)
-        .tickSize(-(ageLayout.axisY - ageLayout.top))
+        .tickSize(-(ageLayout.right - ageLayout.axisX))
         .tickPadding(12));
     axisLayer.append("text")
       .attr("class", "age-axis-title")
-      .attr("x", ageLayout.right)
-      .attr("y", ageLayout.axisY + 48)
-      .attr("text-anchor", "end")
+      .attr("x", ageLayout.axisX - 58)
+      .attr("y", (ageLayout.top + ageLayout.bottom) / 2)
+      .attr("text-anchor", "middle")
+      .attr("transform", `rotate(-90,${ageLayout.axisX - 58},${(ageLayout.top + ageLayout.bottom) / 2})`)
       .text("věk v letech");
     if (ageLayout.unknown.length) {
       axisLayer.append("line")
@@ -5199,7 +5225,7 @@ function updateModeV2(mode, animate = true) {
         .attr("x1", ageLayout.right + 38)
         .attr("x2", ageLayout.right + 38)
         .attr("y1", ageLayout.top - 18)
-        .attr("y2", ageLayout.axisY);
+        .attr("y2", ageLayout.bottom);
       axisLayer.append("text")
         .attr("class", "age-unknown-title")
         .attr("x", ageLayout.unknownStartX)
