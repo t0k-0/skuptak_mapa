@@ -196,6 +196,7 @@ let allGraphLinks = [];
 let simulation;
 let svg, rootLayer, structureLinkLayer, relationshipLinkLayer, zoneLayer, teamLayer, nodeLayer, axisLayer;
 let currentMode = "network";
+let ageAxisDirection = "vertical";
 let fieldDimension = "druzina";
 let selectedFieldTagIds = [];
 let fieldTagSearchTerm = "";
@@ -293,6 +294,7 @@ function loadWorkspaceState() {
     const saved = JSON.parse(localStorage.getItem(VIEW_STATE_KEY) || "null");
     if (!saved) return;
     if (["network", "field", "age"].includes(saved.mode)) currentMode = saved.mode;
+    if (["vertical", "horizontal"].includes(saved.ageAxisDirection)) ageAxisDirection = saved.ageAxisDirection;
     if (["oddil", "druzina", "role", "city", "category", "tags"].includes(saved.fieldDimension)) fieldDimension = saved.fieldDimension;
     if (Array.isArray(saved.selectedFieldTagIds)) selectedFieldTagIds = saved.selectedFieldTagIds.map(Number).filter(Number.isFinite);
     if (["name", "usage"].includes(saved.fieldTagSort)) fieldTagSort = saved.fieldTagSort;
@@ -349,7 +351,7 @@ function captureGraphPositions(mode = currentMode) {
 function persistWorkspaceState(capture = false) {
   if (capture) captureGraphPositions();
   try {
-    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, fieldDimension, selectedFieldTagIds, fieldTagSort, fieldTagOnlyUsed, fieldSidebarExpanded, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, colorAttributeField, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
+    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({mode: currentMode, ageAxisDirection, fieldDimension, selectedFieldTagIds, fieldTagSort, fieldTagOnlyUsed, fieldSidebarExpanded, section: activeSection, searchTerm, displayOptions, connectionFilters, hiddenRelationshipTypes, graphFilters, colorRules, graphColorMode, colorAttributeField, positions: positionCache, zoom: savedZoom, zooms: savedZoomByMode, structureLayoutVersion: needsInitialStructureFit ? null : STRUCTURE_LAYOUT_VERSION}));
   } catch (_) {}
 }
 
@@ -362,8 +364,20 @@ function syncWorkspaceControls() {
   syncPrimaryNavigation();
   syncFieldDimensionControls();
   syncFieldSidebarExpansion();
+  syncAgeAxisControl();
   const search = document.querySelector("#search");
   if (search) search.value = searchTerm;
+}
+
+function syncAgeAxisControl() {
+  const button = document.querySelector("#age-axis-toggle");
+  if (!button) return;
+  const vertical = ageAxisDirection === "vertical";
+  button.hidden = currentMode !== "age";
+  button.dataset.direction = ageAxisDirection;
+  button.setAttribute("aria-label", vertical ? "Přepnout osu věku na vodorovnou" : "Přepnout osu věku na svislou");
+  button.setAttribute("title", vertical ? "Přepnout na vodorovnou osu" : "Přepnout na svislou osu");
+  button.querySelector("span").textContent = vertical ? "Věk: svisle" : "Věk: vodorovně";
 }
 
 function selectedFieldTagNames() {
@@ -457,22 +471,6 @@ function databaseGateStatus(message, state = "ready") {
     dropzone.dataset.state = state;
     dropzone.setAttribute("aria-busy", String(state === "loading"));
   }
-}
-
-function mountApplicationLoader(message = "Rozmisťuji lidi na mapě") {
-  const loader = document.createElement("div");
-  loader.className = "app-loading-screen";
-  loader.setAttribute("role", "status");
-  loader.setAttribute("aria-live", "polite");
-  loader.innerHTML = `
-    <div class="app-loading-visual" aria-hidden="true">
-      <span class="app-loading-logo">${skuptakEmblemSvg}</span>
-      <i></i><i></i><i></i>
-    </div>
-    <strong>${escapeHtml(message)}</strong>
-    <span>Skupták skládá souvislosti</span>`;
-  app.appendChild(loader);
-  return loader;
 }
 
 function renderDatabaseGate() {
@@ -570,7 +568,6 @@ async function handleStartupDatabaseFile(file) {
     const count = result[0]?.values?.[0]?.[0] ?? 0;
     loadedDatabaseName = file.name;
     databaseGateStatus(`Načteno ${count} lidí. Sestavuji mapu…`, "success");
-    await new Promise(resolve => setTimeout(resolve, 80));
     await startApplication();
   } catch (error) {
     try { candidate?.close(); } catch (_) {}
@@ -583,11 +580,9 @@ async function handleStartupDatabaseFile(file) {
 }
 
 async function startApplication() {
-  const loadingStarted = performance.now();
   document.documentElement.classList.remove("landing-page");
   activeSection = "map";
   renderShell();
-  const launchLoader = mountApplicationLoader();
   applyAppSettings(false);
   syncWorkspaceControls();
   await loadPeople();
@@ -595,11 +590,6 @@ async function startApplication() {
   bindEvents();
   initGraphV2();
   showSection("map");
-  const remaining = Math.max(0, 320 - (performance.now() - loadingStarted));
-  if (remaining) await new Promise(resolve => setTimeout(resolve, remaining));
-  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  launchLoader.classList.add("is-leaving");
-  setTimeout(() => launchLoader.remove(), 180);
 }
 
 function renderShell() {
@@ -669,6 +659,7 @@ function renderShell() {
           <div class="map-control-dock">
           <div class="map-toolbar" role="toolbar" aria-label="Nástroje mapy">
             <button class="options-toggle" id="fit-map" type="button">Přizpůsobit</button>
+            <button class="options-toggle age-axis-toggle" id="age-axis-toggle" type="button" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4"/></svg><span>Věk: svisle</span></button>
             <button class="toolbar-icon-button filter-toggle" id="filter-toggle" type="button" aria-label="Filtry a zobrazení mapy" title="Filtry a zobrazení" aria-expanded="false">${icons.filter}<span id="filter-count" class="filter-count" hidden>0</span></button>
           </div>
           <div class="filter-panel" id="filter-panel"></div>
@@ -3894,6 +3885,47 @@ function ageGraphLayout(width, height) {
   const grouped = d3.group(known, person => Math.floor(person.age));
   const largestAgeGroup = d3.max([...grouped.values()], members => members.length) || 1;
   const dotGap = 23;
+  if (ageAxisDirection === "horizontal") {
+    const plotHeight = Math.max(310, height - 205, largestAgeGroup * dotGap + 76);
+    const top = 76;
+    const axisY = top + plotHeight;
+    const unknownColumns = unknown.length ? Math.max(1, Math.min(5, Math.ceil(Math.sqrt(unknown.length)))) : 0;
+    const unknownLaneWidth = unknown.length ? Math.max(146, unknownColumns * dotGap + 58) : 0;
+    const ageSpan = Math.max(10, maxAge - minAge);
+    const plotWidth = Math.max(680, width - 150 - unknownLaneWidth, ageSpan * 20);
+    const left = 76;
+    const right = left + plotWidth;
+    const scale = d3.scaleLinear().domain([minAge, maxAge]).range([left, right]);
+    const middleY = top + plotHeight / 2;
+    grouped.forEach((members, age) => {
+      const ordered = [...members].sort((a, b) => personName(a).localeCompare(personName(b), "cs") || a.id - b.id);
+      ordered.forEach((person, index) => {
+        const step = index === 0 ? 0 : Math.ceil(index / 2) * (index % 2 ? -1 : 1);
+        targets.set(person.id, [scale(+age), middleY + step * dotGap]);
+      });
+    });
+    const unknownStartX = right + (unknown.length ? 78 : 0);
+    unknown.forEach((person, index) => {
+      const row = Math.floor(index / unknownColumns);
+      const column = index % unknownColumns;
+      targets.set(person.id, [unknownStartX + column * dotGap, top + 42 + row * dotGap]);
+    });
+    const unknownRows = unknown.length ? Math.ceil(unknown.length / unknownColumns) : 0;
+    const maxX = unknown.length ? unknownStartX + (unknownColumns - 1) * dotGap + 50 : right + 30;
+    const maxY = Math.max(axisY + 58, unknown.length ? top + 70 + unknownRows * dotGap : 0);
+    return {
+      orientation: "horizontal",
+      targets,
+      scale,
+      axisY,
+      top,
+      right,
+      unknown,
+      unknownStartX,
+      tickCount: Math.max(4, Math.min(16, Math.floor(plotWidth / 105))),
+      bounds: {minX: 30, minY: 24, maxX, maxY}
+    };
+  }
   const ageSpan = Math.max(10, maxAge - minAge);
   const plotHeight = Math.max(560, height - 170, ageSpan * 14);
   const top = 92;
@@ -3922,6 +3954,7 @@ function ageGraphLayout(width, height) {
   const maxX = unknown.length ? unknownStartX + (unknownColumns - 1) * dotGap + 50 : right + 30;
   const maxY = Math.max(bottom + 58, unknown.length ? top + 70 + unknownRows * dotGap : 0);
   return {
+    orientation: "vertical",
     targets,
     scale,
     axisX: left,
@@ -5020,6 +5053,7 @@ function updateModeV2(mode, animate = true) {
   svg.attr("data-mode", mode).attr("data-field-dimension", mode === "field" ? fieldDimension : null);
   syncPrimaryNavigation();
   syncFieldDimensionControls();
+  syncAgeAxisControl();
   syncSectionHeader();
   const mapHint = document.querySelector(".map-hint");
   if (mapHint) mapHint.textContent = mode === "field" && fieldDimension === "oddil"
@@ -5204,28 +5238,45 @@ function updateModeV2(mode, animate = true) {
       .attr("x", ageLayout.bounds.minX + 46)
       .attr("y", 59)
       .text("Každý bod představuje jednoho člověka");
-    axisLayer.append("g")
-      .attr("class", "age-axis age-axis-graph")
-      .attr("transform", `translate(${ageLayout.axisX},0)`)
-      .call(d3.axisLeft(ageLayout.scale)
-        .ticks(ageLayout.tickCount)
-        .tickFormat(value => `${value}`)
-        .tickSize(-(ageLayout.right - ageLayout.axisX))
-        .tickPadding(12));
-    axisLayer.append("text")
-      .attr("class", "age-axis-title")
-      .attr("x", ageLayout.axisX - 58)
-      .attr("y", (ageLayout.top + ageLayout.bottom) / 2)
-      .attr("text-anchor", "middle")
-      .attr("transform", `rotate(-90,${ageLayout.axisX - 58},${(ageLayout.top + ageLayout.bottom) / 2})`)
-      .text("věk v letech");
+    if (ageLayout.orientation === "horizontal") {
+      axisLayer.append("g")
+        .attr("class", "age-axis age-axis-graph")
+        .attr("transform", `translate(0,${ageLayout.axisY})`)
+        .call(d3.axisBottom(ageLayout.scale)
+          .ticks(ageLayout.tickCount)
+          .tickFormat(value => `${value}`)
+          .tickSize(-(ageLayout.axisY - ageLayout.top))
+          .tickPadding(12));
+      axisLayer.append("text")
+        .attr("class", "age-axis-title")
+        .attr("x", ageLayout.right)
+        .attr("y", ageLayout.axisY + 48)
+        .attr("text-anchor", "end")
+        .text("věk v letech");
+    } else {
+      axisLayer.append("g")
+        .attr("class", "age-axis age-axis-graph")
+        .attr("transform", `translate(${ageLayout.axisX},0)`)
+        .call(d3.axisLeft(ageLayout.scale)
+          .ticks(ageLayout.tickCount)
+          .tickFormat(value => `${value}`)
+          .tickSize(-(ageLayout.right - ageLayout.axisX))
+          .tickPadding(12));
+      axisLayer.append("text")
+        .attr("class", "age-axis-title")
+        .attr("x", ageLayout.axisX - 58)
+        .attr("y", (ageLayout.top + ageLayout.bottom) / 2)
+        .attr("text-anchor", "middle")
+        .attr("transform", `rotate(-90,${ageLayout.axisX - 58},${(ageLayout.top + ageLayout.bottom) / 2})`)
+        .text("věk v letech");
+    }
     if (ageLayout.unknown.length) {
       axisLayer.append("line")
         .attr("class", "age-unknown-divider")
         .attr("x1", ageLayout.right + 38)
         .attr("x2", ageLayout.right + 38)
         .attr("y1", ageLayout.top - 18)
-        .attr("y2", ageLayout.bottom);
+        .attr("y2", ageLayout.orientation === "horizontal" ? ageLayout.axisY : ageLayout.bottom);
       axisLayer.append("text")
         .attr("class", "age-unknown-title")
         .attr("x", ageLayout.unknownStartX)
@@ -7076,6 +7127,14 @@ function bindEvents() {
     scheduleWorkspaceState();
   });
   document.querySelector("#fit-map").addEventListener("click", () => fitMapToStructure(true));
+  document.querySelector("#age-axis-toggle").addEventListener("click", () => {
+    ageAxisDirection = ageAxisDirection === "vertical" ? "horizontal" : "vertical";
+    syncAgeAxisControl();
+    updateModeV2("age", false);
+    clearTimeout(graphFitTimer);
+    graphFitTimer = setTimeout(() => fitMapToStructure(true), 40);
+    persistWorkspaceState(false);
+  });
   document.querySelector("#filter-toggle").addEventListener("click", event => {
     event.stopPropagation();
     const panel = document.querySelector("#filter-panel");
